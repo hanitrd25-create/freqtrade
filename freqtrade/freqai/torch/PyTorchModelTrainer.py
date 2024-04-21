@@ -4,6 +4,8 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 import torch
+import torch.nn.functional as F
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 from torch import nn
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader, TensorDataset
@@ -19,16 +21,16 @@ logger = logging.getLogger(__name__)
 
 class PyTorchModelTrainer(PyTorchTrainerInterface):
     def __init__(
-            self,
-            model: nn.Module,
-            optimizer: Optimizer,
-            criterion: nn.Module,
-            device: str,
-            data_convertor: PyTorchDataConvertor,
-            model_meta_data: Dict[str, Any] = {},
-            window_size: int = 1,
-            tb_logger: Any = None,
-            **kwargs
+        self,
+        model: nn.Module,
+        optimizer: Optimizer,
+        criterion: nn.Module,
+        device: str,
+        data_convertor: PyTorchDataConvertor,
+        model_meta_data: Dict[str, Any] = {},
+        window_size: int = 1,
+        tb_logger: Any = None,
+        **kwargs,
     ):
         """
         :param model: The PyTorch model to be trained.
@@ -101,9 +103,9 @@ class PyTorchModelTrainer(PyTorchTrainerInterface):
 
     @torch.no_grad()
     def estimate_loss(
-            self,
-            data_loader_dictionary: Dict[str, DataLoader],
-            split: str,
+        self,
+        data_loader_dictionary: Dict[str, DataLoader],
+        split: str,
     ) -> None:
         self.model.eval()
         for _, batch_data in enumerate(data_loader_dictionary[split]):
@@ -119,9 +121,7 @@ class PyTorchModelTrainer(PyTorchTrainerInterface):
         self.model.train()
 
     def create_data_loaders_dictionary(
-            self,
-            data_dictionary: Dict[str, pd.DataFrame],
-            splits: List[str]
+        self, data_dictionary: Dict[str, pd.DataFrame], splits: List[str]
     ) -> Dict[str, DataLoader]:
         """
         Converts the input data to PyTorch tensors using a data loader.
@@ -168,12 +168,15 @@ class PyTorchModelTrainer(PyTorchTrainerInterface):
           user needs to store. e.g. class_names for classification models.
         """
 
-        torch.save({
-            "model_state_dict": self.model.state_dict(),
-            "optimizer_state_dict": self.optimizer.state_dict(),
-            "model_meta_data": self.model_meta_data,
-            "pytrainer": self
-        }, path)
+        torch.save(
+            {
+                "model_state_dict": self.model.state_dict(),
+                "optimizer_state_dict": self.optimizer.state_dict(),
+                "model_meta_data": self.model_meta_data,
+                "pytrainer": self,
+            },
+            path,
+        )
 
     def load(self, path: Path):
         checkpoint = torch.load(path)
@@ -198,9 +201,7 @@ class PyTorchTransformerTrainer(PyTorchModelTrainer):
     """
 
     def create_data_loaders_dictionary(
-            self,
-            data_dictionary: Dict[str, pd.DataFrame],
-            splits: List[str]
+        self, data_dictionary: Dict[str, pd.DataFrame], splits: List[str]
     ) -> Dict[str, DataLoader]:
         """
         Converts the input data to PyTorch tensors using a data loader.
@@ -228,9 +229,7 @@ class PyTorchTransformerClfTrainer(PyTorchModelTrainer):
     """
 
     def create_data_loaders_dictionary(
-            self,
-            data_dictionary: Dict[str, pd.DataFrame],
-            splits: List[str]
+        self, data_dictionary: Dict[str, pd.DataFrame], splits: List[str]
     ) -> Dict[str, DataLoader]:
         """
         Converts the input data to PyTorch tensors using a data loader.
@@ -250,3 +249,44 @@ class PyTorchTransformerClfTrainer(PyTorchModelTrainer):
             data_loader_dictionary[split] = data_loader
 
         return data_loader_dictionary
+
+    @torch.no_grad()
+    def estimate_loss(
+        self,
+        data_loader_dictionary: Dict[str, DataLoader],
+        split: str,
+    ) -> None:
+        self.model.eval()
+        y_trues = []
+        y_preds = []
+        for _, batch_data in enumerate(data_loader_dictionary[split]):
+            xb, yb = batch_data
+            xb = xb.to(self.device)
+            yb = yb.to(self.device)
+            y_trues.append(yb.cpu())
+            yb_pred = self.model(xb)
+            probs = F.softmax(yb_pred, dim=-1)
+            predicted_classes = torch.argmax(probs, dim=-1)
+            y_preds.append(predicted_classes.cpu())
+
+            loss = self.criterion(yb_pred, yb)
+            self.tb_logger.log_scalar(f"{split}_loss", loss.item(), self.test_batch_counter)
+            self.test_batch_counter += 1
+        y_trues = torch.cat(y_trues)
+        y_preds = torch.cat(y_preds)
+        self.evaluate_multiclass(y_trues, y_preds)
+        self.model.train()
+
+    def evaluate_multiclass(self, y_true, y_pred):
+        # 计算总体准确率
+        overall_accuracy = accuracy_score(y_true, y_pred)
+
+        # 生成混淆矩阵
+        conf_matrix = confusion_matrix(y_true, y_pred)
+
+        # 打印报告
+        print("分类报告:")
+        print(classification_report(y_true, y_pred, output_dict=True, zero_division=0))
+        print(f"整体准确率: {overall_accuracy:.2f}")
+        print("混淆矩阵:")
+        print(conf_matrix)
