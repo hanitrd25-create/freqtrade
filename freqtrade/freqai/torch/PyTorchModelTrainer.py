@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from freqtrade.freqai.torch.PyTorchDataConvertor import PyTorchDataConvertor
 from freqtrade.freqai.torch.PyTorchTrainerInterface import PyTorchTrainerInterface
 
-from .datasets import WindowDataset
+from .datasets import ClfWindowDataset, WindowDataset
 
 
 logger = logging.getLogger(__name__)
@@ -210,6 +210,36 @@ class PyTorchTransformerTrainer(PyTorchModelTrainer):
             x = self.data_convertor.convert_x(data_dictionary[f"{split}_features"], self.device)
             y = self.data_convertor.convert_y(data_dictionary[f"{split}_labels"], self.device)
             dataset = WindowDataset(x, y, self.window_size)
+            data_loader = DataLoader(
+                dataset,
+                batch_size=self.batch_size,
+                shuffle=False,
+                drop_last=True,
+                num_workers=0,
+            )
+            data_loader_dictionary[split] = data_loader
+
+        return data_loader_dictionary
+
+
+class PyTorchTransformerClfTrainer(PyTorchModelTrainer):
+    """
+    Creating a trainer for the Transformer model.
+    """
+
+    def create_data_loaders_dictionary(
+            self,
+            data_dictionary: Dict[str, pd.DataFrame],
+            splits: List[str]
+    ) -> Dict[str, DataLoader]:
+        """
+        Converts the input data to PyTorch tensors using a data loader.
+        """
+        data_loader_dictionary = {}
+        for split in splits:
+            x = self.data_convertor.convert_x(data_dictionary[f"{split}_features"], self.device)
+            y = self.data_convertor.convert_y(data_dictionary[f"{split}_labels"], self.device)
+            dataset = ClfWindowDataset(x, y, self.window_size)
             data_loader = DataLoader(
                 dataset,
                 batch_size=self.batch_size,
