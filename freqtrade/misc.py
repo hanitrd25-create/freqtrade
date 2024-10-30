@@ -40,7 +40,7 @@ def file_dump_json(filename: Path, data: Any, is_zip: bool = False, log: bool = 
         if log:
             logger.info(f'dumping json to "{filename}"')
         with filename.open("w") as fp:
-            rapidjson.dump(data, fp, default=str, number_mode=rapidjson.NM_NATIVE)
+            rapidjson.dump(data, fp, default=str, number_mode=rapidjson.NM_NATIVE, indent=4)
 
     logger.debug(f'done json to "{filename}"')
 
