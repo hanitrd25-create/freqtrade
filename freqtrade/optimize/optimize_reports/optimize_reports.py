@@ -8,6 +8,7 @@ from pandas import DataFrame, Series, concat, to_datetime
 
 from freqtrade.constants import BACKTEST_BREAKDOWNS, DATETIME_PRINT_FORMAT
 from freqtrade.data.metrics import (
+    calculate_account_value_history,
     calculate_cagr,
     calculate_calmar,
     calculate_csum,
@@ -350,6 +351,7 @@ def generate_daily_stats(results: DataFrame) -> dict[str, Any]:
 
 
 def generate_strategy_stats(
+    btdata,
     pairlist: list[str],
     strategy: str,
     content: dict[str, Any],
@@ -431,6 +433,18 @@ def generate_strategy_stats(
 
     expectancy, expectancy_ratio = calculate_expectancy(results)
     backtest_days = (max_date - min_date).days or 1
+
+    account_value_history = calculate_account_value_history(
+        btdata=btdata,
+        trades=results,
+        min_date=min_date,
+        max_date=max_date,
+        timeframe=config["timeframe"],
+        stake_currency=stake_currency,
+        start_balance=start_balance,
+        pairlist=pairlist,
+    )
+
     strat_stats = {
         "trades": results.to_dict(orient="records"),
         "locks": [lock.to_json() for lock in content["locks"]],
@@ -458,7 +472,7 @@ def generate_strategy_stats(
         "expectancy": expectancy,
         "expectancy_ratio": expectancy_ratio,
         "sortino": calculate_sortino(results, min_date, max_date, start_balance),
-        "sharpe": calculate_sharpe(results, min_date, max_date, start_balance),
+        "sharpe": calculate_sharpe(account_value_history, config["timeframe"]),
         "calmar": calculate_calmar(results, min_date, max_date, start_balance),
         "profit_factor": profit_factor,
         "backtest_start": min_date.strftime(DATETIME_PRINT_FORMAT),
@@ -581,7 +595,7 @@ def generate_backtest_stats(
     pairlist = list(btdata.keys())
     for strategy, content in all_results.items():
         strat_stats = generate_strategy_stats(
-            pairlist, strategy, content, min_date, max_date, market_change=market_change
+            btdata, pairlist, strategy, content, min_date, max_date, market_change=market_change
         )
         metadata[strategy] = {
             "run_id": content["run_id"],

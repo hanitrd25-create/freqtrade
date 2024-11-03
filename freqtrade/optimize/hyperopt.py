@@ -409,6 +409,7 @@ class Hyperopt:
         params_details = self._get_params_details(params_dict)
 
         strat_stats = generate_strategy_stats(
+            processed,
             self.pairlist,
             self.backtesting.strategy.get_strategy_name(),
             backtesting_results,
