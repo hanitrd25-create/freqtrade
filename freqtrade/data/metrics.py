@@ -5,6 +5,10 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
+from pandas import DataFrame, Series
+
+from freqtrade.exchange import timeframe_to_resample_freq, timeframe_to_seconds
+from freqtrade.util import dt_from_ts
 
 
 logger = logging.getLogger(__name__)
@@ -313,31 +317,64 @@ def calculate_sortino(
     return sortino_ratio
 
 
-def calculate_sharpe(
-    trades: pd.DataFrame, min_date: datetime, max_date: datetime, starting_balance: float
-) -> float:
+def calculate_account_value_history(
+    btdata: dict[str, DataFrame],
+    trades: DataFrame,
+    min_date: datetime,
+    max_date: datetime,
+    timeframe: str,
+    stake_currency: str,
+    start_balance: float,
+    pairlist: list[str],
+) -> Series:
+    """
+    Return a Series that contains the account value (approximately) at the open time of
+    every candle stick, in stake currency.
+    """
+    index = pd.date_range(min_date, max_date, freq=timeframe_to_resample_freq(timeframe))
+    df = pd.DataFrame(index=index)
+    df[stake_currency] = float(start_balance)
+    df[pairlist] = 0.0
+    for trade in trades.itertuples():
+        for order in trade.orders:
+            filled_at = pd.Timestamp(dt_from_ts(order["order_filled_timestamp"]))
+            stake = order["safe_price"] * order["amount"]
+
+            if order["ft_is_entry"]:
+                fee = stake * trade.fee_open
+            else:
+                fee = stake * trade.fee_close
+
+            if order["ft_order_side"] == "buy":
+                df.loc[filled_at:, trade.pair] += order["amount"]
+                df.loc[filled_at:, stake_currency] -= stake + fee
+            else:
+                df.loc[filled_at:, trade.pair] -= order["amount"]
+                df.loc[filled_at:, stake_currency] += stake - fee
+
+    for pair in pairlist:
+        close_price = btdata[pair].set_index("date")["close"]
+        df[pair] = df[pair] * close_price
+    value_in_stake_currency = df.sum(axis=1)
+    return value_in_stake_currency
+
+
+def calculate_sharpe(account_value_history: pd.Series, timeframe: str) -> float:
     """
     Calculate sharpe
-    :param trades: DataFrame containing trades (requires column profit_abs)
+    :param account_value_history: A Series that contains the account value at the close time
+    of every candle stick, in stake currency
     :return: sharpe
     """
-    if (len(trades) == 0) or (min_date is None) or (max_date is None) or (min_date == max_date):
-        return 0
-
-    total_profit = trades["profit_abs"] / starting_balance
-    days_period = max(1, (max_date - min_date).days)
-
-    expected_returns_mean = total_profit.sum() / days_period
-    up_stdev = np.std(total_profit)
-
-    if up_stdev != 0:
-        sharp_ratio = expected_returns_mean / up_stdev * np.sqrt(365)
+    returns = account_value_history.pct_change()
+    mean_return = returns.mean()
+    std_dev_return = returns.std()
+    t = 365 * 86400 / timeframe_to_seconds(timeframe)
+    if std_dev_return == 0:
+        sharpe = -100
     else:
-        # Define high (negative) sharpe ratio to be clear that this is NOT optimal.
-        sharp_ratio = -100
-
-    # print(expected_returns_mean, up_stdev, sharp_ratio)
-    return sharp_ratio
+        sharpe = mean_return / std_dev_return * t**0.5
+    return sharpe
 
 
 def calculate_calmar(
