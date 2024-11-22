@@ -194,7 +194,7 @@ class StepParameter(NumericParameter):
         otherwise returns just the current value.
         """
         if self.can_optimize():
-            return range(self.low, self.high + self.step, self.step)
+            return range(self.low, self.high )
         else:
             return range(self.value, self.value + 1)
 
