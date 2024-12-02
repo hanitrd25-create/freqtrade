@@ -584,6 +584,34 @@ class IStrategy(ABC, HyperStrategyMixin):
         """
         return self.custom_sell(pair, trade, current_time, current_rate, current_profit, **kwargs)
 
+    def custom_orders(
+        self,
+        pair: str,
+        trade: Trade | None,
+        leverage: float,
+        current_time: datetime,
+        entry_tag: str | None,
+        side: str,
+        **kwargs,
+    ) -> float:
+        """
+        Custom orders list to create, returning updated list of orders to create/update.
+
+        For full documentation please go to https://www.freqtrade.io/en/latest/strategy-advanced/
+
+        When not implemented by a strategy, returns None
+
+        :param pair: Pair that's currently analyzed
+        :param trade: trade object (None for initial entries).
+        :param leverage: Leverage selected for this trade.
+        :param current_time: datetime object, containing the current datetime
+        :param entry_tag: Optional entry_tag (buy_tag) if provided with the buy signal.
+        :param side: 'long' or 'short' - indicating the direction of the proposed trade
+        :param **kwargs: Ensure to keep this here so updates to this won't break your strategy.
+        :return array: Array of dict containing orders to create
+        """
+        return None
+
     def custom_stake_amount(
         self,
         pair: str,
