@@ -593,7 +593,7 @@ class IStrategy(ABC, HyperStrategyMixin):
         entry_tag: str | None,
         side: str,
         **kwargs,
-    ) -> float:
+    ) -> list | None:
         """
         Custom orders list to create, returning updated list of orders to create/update.
 
