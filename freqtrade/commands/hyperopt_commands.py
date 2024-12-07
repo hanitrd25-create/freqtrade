@@ -78,12 +78,10 @@ def start_hyperopt_show(args: dict[str, Any]) -> None:
     # Previous evaluations
     epochs, total_epochs = HyperoptTools.load_filtered_results(results_file, config)
 
-    epoch = next(filter(lambda e: e['current_epoch'] == n, epochs), None)
+    epoch = next(filter(lambda e: e["current_epoch"] == n, epochs), None)
 
     if not epoch:
-        raise OperationalException(
-            f"The epoch could not be found in the filtered list"
-        )
+        raise OperationalException(f"The epoch could not be found in the filtered list")
 
     metrics = epoch["results_metrics"]
     if "strategy_name" in metrics:
