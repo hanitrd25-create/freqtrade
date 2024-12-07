@@ -93,8 +93,9 @@ def start_hyperopt_show(args: dict[str, Any]) -> None:
     if n > 0:
         n -= 1
 
-    if epochs:
-        val = epochs[n]
+    val = next(filter(lambda epoch: epoch['current_epoch'] == n, epochs), None)
+
+    if val:
 
         metrics = val["results_metrics"]
         if "strategy_name" in metrics:
