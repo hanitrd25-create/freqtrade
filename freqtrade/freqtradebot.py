@@ -1123,7 +1123,7 @@ class FreqtradeBot(LoggingMixin):
         trade: Trade | None,
         mode: EntryExecuteMode,
         leverage_: float | None,
-    ) -> tuple[float, float, float]:
+    ) -> list[Any]:
         """
         Prepare orders to send to exchange, based on exchange requirement and strategy callbacks
         :return: List of orders to create [(type, amount, trigger_price)]
@@ -1155,7 +1155,7 @@ class FreqtradeBot(LoggingMixin):
 
             order_details = orders_to_send[0]  # limited to one order for the moment
 
-            if "time_in_force" not  in order_details:
+            if "time_in_force" not in order_details:
                 order_details["time_in_force"] = self.strategy.order_time_in_force["entry"]
         else:
             amount = (stake_amount / enter_limit_requested) * leverage
