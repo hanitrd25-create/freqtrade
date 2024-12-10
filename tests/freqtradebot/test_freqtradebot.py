@@ -1109,6 +1109,27 @@ def test_execute_entry(
     assert trade
     assert trade.open_rate_requested == 10
 
+    # TODO In case of custom orders usage
+    order["status"] = "open"
+    order["id"] = "5569"
+
+    freqtrade.strategy.custom_orders = lambda **kwargs: [
+        {
+            "pair": "ETH/USDT",
+            "type": "limit",
+            "side": "buy" if not entry_side(is_short) == "short" else "sell",
+            "amount": 0.1,
+            "price": 100.0,
+            "leverage": leverage,
+            "order_tag": "entry_tag_co",
+            "time_in_force": "GTC",
+        }
+    ]
+
+    assert freqtrade.execute_entry("ETH/USDT", stake_amount, is_short=is_short)
+
+    freqtrade.strategy.custom_orders = lambda **kwargs: None
+
     # In case of too high stake amount
 
     order["status"] = "open"

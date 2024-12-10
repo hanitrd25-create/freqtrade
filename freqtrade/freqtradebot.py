@@ -892,9 +892,9 @@ class FreqtradeBot(LoggingMixin):
         entry_orders = self.get_valid_orders_details(
             pair, price, stake_amount, trade_side, action_side, enter_tag, trade, mode, leverage_
         )
-        requested_order = entry_orders[0]
+        requested_order = entry_orders[0]  # limited to one order for the moment
 
-        if not entry_orders:
+        if not entry_orders or len(entry_orders) == 0:
             return False
 
         if not stake_amount:
@@ -1010,7 +1010,7 @@ class FreqtradeBot(LoggingMixin):
                 pair=pair,
                 base_currency=base_currency,
                 stake_currency=self.config["stake_currency"],
-                stake_amount=requested_order["stake_amount"],
+                stake_amount=requested_order["stake_amount"],  # TODO must use executed_order
                 amount=0,
                 is_open=True,
                 amount_requested=amount_requested,
@@ -1144,41 +1144,74 @@ class FreqtradeBot(LoggingMixin):
             side=trade_side,
         )
 
+        # Prepare default params according to side
+        if action_side == "entry":
+            side = "buy" if trade_side == "long" else "sell"
+            reduce_only = False
+            action_side_tif = self.strategy.order_time_in_force["entry"]
+        else:
+            side = "sell" if trade_side == "short" else "buy"
+            reduce_only = True
+            action_side_tif = self.strategy.order_time_in_force["exit"]
+
+        orders = []
+
         if custom_orders and len(custom_orders) > 0:
-            orders_to_send = (
-                custom_orders  # According to the side entry or exit filter out opposite site orders
-            )
+            for co in custom_orders:
+                order_details = {}  # TODO replace this with a dataclass
+                # According to the action_side entry or exit filter out opposite site orders
+                if co["side"] != side:
+                    break
 
-            # Validate that sum stake_amount from custom_orders is under < stake_amount
-            amount = (stake_amount / enter_limit_requested) * leverage
-            order_type = "limit" or self.strategy.order_types["entry"]
+                # This won't be the final as the exchange set final price and quantity
+                # This should no be used at trade creation
+                req_stake_amount = (co["price"] * co["amount"]) / leverage
+                order_type = safe_value_fallback(co, "type", None, "limit")
+                time_in_force = safe_value_fallback(co, "time_in_force", None, action_side_tif)
 
-            order_details = orders_to_send[0]  # limited to one order for the moment
+                order_details["pair"] = pair
+                order_details["type"] = order_type
+                order_details["side"] = co["side"]
+                order_details["price"] = co["price"]
+                order_details["amount"] = co["amount"]
+                order_details["stake_amount"] = req_stake_amount
+                order_details["leverage"] = leverage
+                order_details["order_tag"] = entry_tag
+                order_details["reduce_only"] = reduce_only
+                order_details["time_in_force"] = time_in_force
 
-            if "time_in_force" not in order_details:
-                order_details["time_in_force"] = self.strategy.order_time_in_force["entry"]
+                orders.append(order_details)
+
+            # TODO Validate that sum stake_amount from custom_orders is under < stake_amount
+            sum_stake_amount = sum(od["stake_amount"] for od in orders)
+            if sum_stake_amount > stake_amount:
+                logger.warning(
+                    f"Custom_orders sum_stake_amount of {sum_stake_amount} "
+                    f"is over stake_amount of {stake_amount}, "
+                    f"aborting {pair} custom_orders {action_side} "
+                    "you shoud reduce you position size or raise the stake_amount"
+                )
+                return []
+
         else:
             amount = (stake_amount / enter_limit_requested) * leverage
             order_type = "limit" or self.strategy.order_types["entry"]
-
-            if action_side == "entry":
-                side = "buy" if trade_side == "long" else "sell"
-            else:
-                side = "sell" if trade_side == "short" else "buy"
 
             order_details = {
                 "pair": pair,
                 "type": order_type,
                 "side": side,
+                "price": enter_limit_requested,
                 "amount": amount,
                 "stake_amount": stake_amount,
-                "price": enter_limit_requested,
                 "leverage": leverage,
                 "order_tag": entry_tag,
+                "retuce_only": reduce_only,
                 "time_in_force": self.strategy.order_time_in_force["entry"],
             }
+            orders.append(order_details)
 
-        return [order_details]
+        return [orders[0]]  # limited to one order for the moment
 
     def get_valid_enter_price_and_stake(
         self,
