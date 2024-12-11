@@ -890,7 +890,8 @@ class FreqtradeBot(LoggingMixin):
 
         # Get Order
         entry_orders = self.get_valid_orders_details(
-            pair, price, stake_amount, trade_side, action_side, enter_tag, trade, mode, leverage_
+            pair, price, stake_amount, is_short, action_side, enter_tag, None,
+            trade, mode, leverage_
         )
 
         if not entry_orders or len(entry_orders) == 0:
@@ -1118,9 +1119,10 @@ class FreqtradeBot(LoggingMixin):
         pair: str,
         price: float | None,
         stake_amount: float,
-        trade_side: LongShort,
+        is_short: False,
         action_side: str,
-        entry_tag: str | None,
+        action_tag: str | None,
+        action_reason: str | None,
         trade: Trade | None,
         mode: EntryExecuteMode,
         leverage_: float | None,
@@ -1130,10 +1132,38 @@ class FreqtradeBot(LoggingMixin):
         :return: List of orders to create [(type, amount, trigger_price)]
         """
 
-        # Gather data to generate order the standard way
-        enter_limit_requested, stake_amount, leverage = self.get_valid_enter_price_and_stake(
-            pair, price, stake_amount, trade_side, entry_tag, trade, mode, leverage_
-        )
+        trade_side: LongShort = "short" if is_short else "long"
+
+
+        # Prepare default params according to side
+        if action_side == "entry":
+            side = "buy" if trade_side == "long" else "sell"
+            reduce_only = False
+            action_side_tif = self.strategy.order_time_in_force["entry"]
+
+            # Gather data to generate entry order the standard way
+            limit_price_requested, stake_amount, leverage = self.get_valid_enter_price_and_stake(
+                pair, price, stake_amount, trade_side, action_tag, trade, mode, leverage_
+            )
+        else:
+            side = "sell" if trade_side == "short" else "buy"
+            reduce_only = True
+            action_side_tif = self.strategy.order_time_in_force["exit"]
+
+            # Gather data to generate exit order the standard way
+            current_profit = trade.calc_profit_ratio(price)
+            custom_exit_price = strategy_safe_wrapper(
+                self.strategy.custom_exit_price, default_retval=price
+            )(
+                pair=trade.pair,
+                trade=trade,
+                current_time=datetime.now(timezone.utc),
+                proposed_rate=price,
+                current_profit=current_profit,
+                exit_tag=action_reason,
+            )
+
+            limit_price_requested = self.get_valid_price(custom_exit_price, price)
 
         # Generate orders with custom_orders
         custom_orders = strategy_safe_wrapper(self.strategy.custom_orders, default_retval=None)(
@@ -1141,19 +1171,9 @@ class FreqtradeBot(LoggingMixin):
             trade=trade,
             leverage=leverage,
             current_time=datetime.now(timezone.utc),
-            entry_tag=entry_tag,
+            entry_tag=action_tag,
             side=trade_side,
         )
-
-        # Prepare default params according to side
-        if action_side == "entry":
-            side = "buy" if trade_side == "long" else "sell"
-            reduce_only = False
-            action_side_tif = self.strategy.order_time_in_force["entry"]
-        else:
-            side = "sell" if trade_side == "short" else "buy"
-            reduce_only = True
-            action_side_tif = self.strategy.order_time_in_force["exit"]
 
         orders = []
 
@@ -1177,7 +1197,7 @@ class FreqtradeBot(LoggingMixin):
                 order_details["amount"] = co["amount"]
                 order_details["stake_amount"] = req_stake_amount
                 order_details["leverage"] = leverage
-                order_details["order_tag"] = entry_tag
+                order_details["order_tag"] = action_tag
                 order_details["reduce_only"] = reduce_only
                 order_details["time_in_force"] = time_in_force
 
@@ -1195,18 +1215,18 @@ class FreqtradeBot(LoggingMixin):
                 return []
 
         else:
-            amount = (stake_amount / enter_limit_requested) * leverage
+            amount = (stake_amount / limit_price_requested) * leverage
             order_type = "limit" or self.strategy.order_types["entry"]
 
             order_details = {
                 "pair": pair,
                 "type": order_type,
                 "side": side,
-                "price": enter_limit_requested,
+                "price": limit_price_requested,
                 "amount": amount,
                 "stake_amount": stake_amount,
                 "leverage": leverage,
-                "order_tag": entry_tag,
+                "order_tag": action_tag,
                 "retuce_only": reduce_only,
                 "time_in_force": self.strategy.order_time_in_force["entry"],
             }
