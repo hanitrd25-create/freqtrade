@@ -889,9 +889,18 @@ class FreqtradeBot(LoggingMixin):
         action_side = "entry"
 
         # Get Order
-        entry_orders = self.get_valid_orders_details(
-            pair, price, stake_amount, is_short, action_side, enter_tag, None,
-            trade, mode, leverage_
+        entry_orders = self.get_valid_entry_orders_details(
+            pair,
+            price,
+            stake_amount,
+            is_short,
+            action_side,
+            enter_tag,
+            None,
+            trade,
+            mode,
+            leverage_,
+            ordertype,
         )
 
         if not entry_orders or len(entry_orders) == 0:
@@ -1114,56 +1123,130 @@ class FreqtradeBot(LoggingMixin):
 
         return orders_responses
 
-    def get_valid_orders_details(
+    def get_valid_exit_orders_details(
         self,
         pair: str,
         price: float | None,
-        stake_amount: float,
+        amount: float,
+        is_short: False,
+        exit_tag: str | None,
+        order_type: str | None,
+        trade: Trade,
+    ) -> list[Any]:
+        trade_side: LongShort = "short" if is_short else "long"
+        reduce_only = True
+        action_side = "exit"
+
+        if not order_type:
+            action_side_order_type = self.strategy.order_types[action_side]
+        else:
+            action_side_order_type = order_type
+
+        action_side_tif = self.strategy.order_time_in_force[action_side]
+
+        # Gather data to generate exit order the standard way
+        current_profit = trade.calc_profit_ratio(price)
+        custom_exit_price = strategy_safe_wrapper(
+            self.strategy.custom_exit_price, default_retval=price
+        )(
+            pair=trade.pair,
+            trade=trade,
+            current_time=datetime.now(timezone.utc),
+            proposed_rate=price,
+            current_profit=current_profit,
+            exit_tag=exit_tag,
+        )
+
+        limit_price_requested = self.get_valid_price(custom_exit_price, price)
+
+        # Generate orders with custom_orders
+        custom_orders = strategy_safe_wrapper(self.strategy.custom_orders, default_retval=None)(
+            pair=pair,
+            trade=trade,
+            leverage=trade.leverage,
+            current_time=datetime.now(timezone.utc),
+            entry_tag=exit_tag,
+            side=trade_side,
+        )
+
+        orders = []
+
+        if custom_orders and len(custom_orders) > 0:
+            for co in custom_orders:
+                order_details = {}  # TODO replace this with a dataclass
+                # According to the action_side entry or exit filter out opposite site orders
+                if co["side"] != trade.exit_side:
+                    return []
+
+                # This won't be the final as the exchange set final price and quantity
+                # This should no be used at trade creation
+                req_stake_amount = (co["price"] * co["amount"]) / trade.leverage
+                order_type = safe_value_fallback(co, "type", None, action_side_order_type)
+                time_in_force = safe_value_fallback(co, "time_in_force", None, action_side_tif)
+
+                order_details["pair"] = pair
+                order_details["type"] = order_type
+                order_details["side"] = co["side"]
+                order_details["price"] = co["price"]
+                order_details["amount"] = co["amount"]
+                order_details["stake_amount"] = req_stake_amount
+                order_details["leverage"] = trade.leverage
+                order_details["order_tag"] = exit_tag
+                order_details["reduce_only"] = reduce_only
+                order_details["time_in_force"] = time_in_force
+
+                orders.append(order_details)
+
+        else:
+            order_details = {
+                "pair": pair,
+                "type": action_side_order_type,
+                "action_side": action_side,
+                "side": trade.exit_side,
+                "price": limit_price_requested,
+                "amount": amount,
+                "stake_amount": None,
+                "leverage": trade.leverage,
+                "order_tag": exit_tag,
+                "retuce_only": reduce_only,
+                "time_in_force": action_side_tif,
+            }
+            orders.append(order_details)
+
+        return [orders[0]]  # limited to one order for the moment
+
+    def get_valid_entry_orders_details(
+        self,
+        pair: str,
+        price: float | None,
+        stake_amount: float | None,
         is_short: False,
         action_side: str,
         action_tag: str | None,
         action_reason: str | None,
         trade: Trade | None,
-        mode: EntryExecuteMode,
-        leverage_: float | None,
+        mode: EntryExecuteMode | None,
+        leverage_: float,
+        order_type: str | None,
     ) -> list[Any]:
         """
         Prepare orders to send to exchange, based on exchange requirement and strategy callbacks
         :return: List of orders to create [(type, amount, trigger_price)]
         """
 
+        action_side = "entry"
         trade_side: LongShort = "short" if is_short else "long"
 
-
         # Prepare default params according to side
-        if action_side == "entry":
-            side = "buy" if trade_side == "long" else "sell"
-            reduce_only = False
-            action_side_tif = self.strategy.order_time_in_force["entry"]
+        side = "buy" if trade_side == "long" else "sell"
+        reduce_only = False
+        action_side_tif = self.strategy.order_time_in_force["entry"]
+        action_side_order_type = self.strategy.order_types["entry"]
 
-            # Gather data to generate entry order the standard way
-            limit_price_requested, stake_amount, leverage = self.get_valid_enter_price_and_stake(
-                pair, price, stake_amount, trade_side, action_tag, trade, mode, leverage_
-            )
-        else:
-            side = "sell" if trade_side == "short" else "buy"
-            reduce_only = True
-            action_side_tif = self.strategy.order_time_in_force["exit"]
-
-            # Gather data to generate exit order the standard way
-            current_profit = trade.calc_profit_ratio(price)
-            custom_exit_price = strategy_safe_wrapper(
-                self.strategy.custom_exit_price, default_retval=price
-            )(
-                pair=trade.pair,
-                trade=trade,
-                current_time=datetime.now(timezone.utc),
-                proposed_rate=price,
-                current_profit=current_profit,
-                exit_tag=action_reason,
-            )
-
-            limit_price_requested = self.get_valid_price(custom_exit_price, price)
+        # Gather data to generate entry order the standard way
+        limit_price_requested, stake_amount, leverage = self.get_valid_enter_price_and_stake(
+            pair, price, stake_amount, trade_side, action_tag, trade, mode, leverage_
+        )
 
         # Generate orders with custom_orders
         custom_orders = strategy_safe_wrapper(self.strategy.custom_orders, default_retval=None)(
@@ -1187,7 +1270,7 @@ class FreqtradeBot(LoggingMixin):
                 # This won't be the final as the exchange set final price and quantity
                 # This should no be used at trade creation
                 req_stake_amount = (co["price"] * co["amount"]) / leverage
-                order_type = safe_value_fallback(co, "type", None, "limit")
+                order_type = safe_value_fallback(co, "type", None, action_side_order_type)
                 time_in_force = safe_value_fallback(co, "time_in_force", None, action_side_tif)
 
                 order_details["pair"] = pair
@@ -1215,12 +1298,14 @@ class FreqtradeBot(LoggingMixin):
                 return []
 
         else:
+            if not stake_amount:
+                return []
+
             amount = (stake_amount / limit_price_requested) * leverage
-            order_type = "limit" or self.strategy.order_types["entry"]
 
             order_details = {
                 "pair": pair,
-                "type": order_type,
+                "type": action_side_order_type,
                 "side": side,
                 "price": limit_price_requested,
                 "amount": amount,
@@ -1228,7 +1313,7 @@ class FreqtradeBot(LoggingMixin):
                 "leverage": leverage,
                 "order_tag": action_tag,
                 "retuce_only": reduce_only,
-                "time_in_force": self.strategy.order_time_in_force["entry"],
+                "time_in_force": action_side_tif,
             }
             orders.append(order_details)
 
@@ -2123,28 +2208,13 @@ class FreqtradeBot(LoggingMixin):
 
         exit_type = "exit"
         exit_reason = exit_tag or exit_check.exit_reason
+
         if exit_check.exit_type in (
             ExitType.STOP_LOSS,
             ExitType.TRAILING_STOP_LOSS,
             ExitType.LIQUIDATION,
         ):
             exit_type = "stoploss"
-
-        # set custom_exit_price if available
-        proposed_limit_rate = limit
-        current_profit = trade.calc_profit_ratio(limit)
-        custom_exit_price = strategy_safe_wrapper(
-            self.strategy.custom_exit_price, default_retval=proposed_limit_rate
-        )(
-            pair=trade.pair,
-            trade=trade,
-            current_time=datetime.now(timezone.utc),
-            proposed_rate=proposed_limit_rate,
-            current_profit=current_profit,
-            exit_tag=exit_reason,
-        )
-
-        limit = self.get_valid_price(custom_exit_price, proposed_limit_rate)
 
         # First cancelling stoploss on exchange ...
         trade = self.cancel_stoploss_on_exchange(trade)
@@ -2155,7 +2225,16 @@ class FreqtradeBot(LoggingMixin):
             order_type = self.strategy.order_types.get("emergency_exit", "market")
 
         amount = self._safe_exit_amount(trade, trade.pair, sub_trade_amt or trade.amount)
-        time_in_force = self.strategy.order_time_in_force["exit"]
+
+        exit_orders = self.get_valid_exit_orders_details(
+            trade.pair, limit, amount, trade.is_short, exit_tag, order_type, trade
+        )
+
+        if not exit_orders or len(exit_orders) == 0:
+            logger.warning(f"Failed to prepare exit order for {trade.pair}, aborting exit.")
+            return False
+
+        req_exit_order = exit_orders[0]
 
         if (
             exit_check.exit_type != ExitType.LIQUIDATION
@@ -2163,10 +2242,10 @@ class FreqtradeBot(LoggingMixin):
             and not strategy_safe_wrapper(self.strategy.confirm_trade_exit, default_retval=True)(
                 pair=trade.pair,
                 trade=trade,
-                order_type=order_type,
-                amount=amount,
-                rate=limit,
-                time_in_force=time_in_force,
+                order_type=req_exit_order["type"],
+                amount=req_exit_order["amount"],
+                rate=req_exit_order["price"],
+                time_in_force=req_exit_order["time_in_force"],
                 exit_reason=exit_reason,
                 sell_reason=exit_reason,  # sellreason -> compatibility
                 current_time=datetime.now(timezone.utc),
@@ -2176,35 +2255,30 @@ class FreqtradeBot(LoggingMixin):
             return False
 
         try:
-            # Execute sell and update trade record
-            order = self.exchange.create_order(
-                pair=trade.pair,
-                ordertype=order_type,
-                side=trade.exit_side,
-                amount=amount,
-                rate=limit,
-                leverage=trade.leverage,
-                reduceOnly=self.trading_mode == TradingMode.FUTURES,
-                time_in_force=time_in_force,
-            )
+            # Order execution
+            executed_exit_orders_res = self.execute_orders_on_exchange(exit_orders)
+            executed_order = executed_exit_orders_res[0]
+
         except InsufficientFundsError as e:
             logger.warning(f"Unable to place order {e}.")
             # Try to figure out what went wrong
             self.handle_insufficient_funds(trade)
             return False
 
-        order_obj = Order.parse_from_ccxt_object(order, trade.pair, trade.exit_side, amount, limit)
+        order_obj = Order.parse_from_ccxt_object(
+            executed_order, trade.pair, trade.exit_side, amount, limit
+        )
         order_obj.ft_order_tag = exit_reason
         trade.orders.append(order_obj)
 
         trade.exit_order_status = ""
-        trade.close_rate_requested = limit
+        trade.close_rate_requested = req_exit_order["price"]
         trade.exit_reason = exit_reason
 
         self._notify_exit(trade, order_type, sub_trade=bool(sub_trade_amt), order=order_obj)
         # In case of market sell orders the order can be closed immediately
-        if order.get("status", "unknown") in ("closed", "expired"):
-            self.update_trade_state(trade, order_obj.order_id, order)
+        if executed_order.get("status", "unknown") in ("closed", "expired"):
+            self.update_trade_state(trade, order_obj.order_id, executed_order)
         Trade.commit()
 
         return True

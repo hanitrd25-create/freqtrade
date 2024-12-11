@@ -588,7 +588,7 @@ class IStrategy(ABC, HyperStrategyMixin):
         self,
         pair: str,
         trade: Trade | None,
-        leverage: float,
+        leverage: float | None,
         current_time: datetime,
         entry_tag: str | None,
         side: str,
