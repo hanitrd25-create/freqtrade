@@ -1109,6 +1109,7 @@ def test_execute_entry(
     assert trade
     assert trade.open_rate_requested == 10
 
+    freqtrade.strategy.custom_stake_amount = MagicMock(return_value=4)
     # TODO In case of custom orders usage
     order["status"] = "open"
     order["id"] = "5569"
@@ -1117,8 +1118,8 @@ def test_execute_entry(
         {
             "pair": "ETH/USDT",
             "type": "limit",
-            "side": "buy" if not entry_side(is_short) == "short" else "sell",
-            "amount": 0.1,
+            "side": "sell" if is_short else "buy",
+            "amount": 0.02,
             "price": 100.0,
             "leverage": leverage,
             "order_tag": "entry_tag_co",
@@ -1127,8 +1128,7 @@ def test_execute_entry(
     ]
 
     assert freqtrade.execute_entry("ETH/USDT", stake_amount, is_short=is_short)
-
-    freqtrade.strategy.custom_orders = lambda **kwargs: None
+    freqtrade.strategy.custom_orders = MagicMock(return_value=None)
 
     # In case of too high stake amount
 
@@ -1139,10 +1139,12 @@ def test_execute_entry(
         EXMS,
         get_max_pair_stake_amount=MagicMock(return_value=500),
     )
+    freqtrade.strategy.custom_stake_amount = MagicMock(return_value=500)
+    freqtrade.strategy.custom_stake_amount.reset_mock()
     freqtrade.exchange.get_max_pair_stake_amount = MagicMock(return_value=500)
 
     assert freqtrade.execute_entry(pair, 2000, is_short=is_short)
-    trade = Trade.session.scalars(select(Trade)).all()[9]
+    trade = Trade.session.scalars(select(Trade)).all()[10]
     trade.is_short = is_short
     assert pytest.approx(trade.stake_amount) == 500
 
@@ -1151,7 +1153,7 @@ def test_execute_entry(
     freqtrade.strategy.leverage.reset_mock()
     assert freqtrade.execute_entry(pair, 200, leverage_=3)
     assert freqtrade.strategy.leverage.call_count == 0
-    trade = Trade.session.scalars(select(Trade)).all()[10]
+    trade = Trade.session.scalars(select(Trade)).all()[11]
     assert trade.leverage == 1 if trading_mode == "spot" else 3
 
 

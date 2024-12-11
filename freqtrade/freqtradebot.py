@@ -892,13 +892,14 @@ class FreqtradeBot(LoggingMixin):
         entry_orders = self.get_valid_orders_details(
             pair, price, stake_amount, trade_side, action_side, enter_tag, trade, mode, leverage_
         )
-        requested_order = entry_orders[0]  # limited to one order for the moment
 
         if not entry_orders or len(entry_orders) == 0:
             return False
 
         if not stake_amount:
             return False
+
+        requested_order = entry_orders[0]  # limited to one order for the moment
 
         # Logging
         msg = (
@@ -1161,7 +1162,7 @@ class FreqtradeBot(LoggingMixin):
                 order_details = {}  # TODO replace this with a dataclass
                 # According to the action_side entry or exit filter out opposite site orders
                 if co["side"] != side:
-                    break
+                    return []
 
                 # This won't be the final as the exchange set final price and quantity
                 # This should no be used at trade creation
@@ -1186,7 +1187,7 @@ class FreqtradeBot(LoggingMixin):
             sum_stake_amount = sum(od["stake_amount"] for od in orders)
             if sum_stake_amount > stake_amount:
                 logger.warning(
-                    f"Custom_orders sum_stake_amount of {sum_stake_amount} "
+                    f"custom_orders sum_stake_amount of {sum_stake_amount} "
                     f"is over stake_amount of {stake_amount}, "
                     f"aborting {pair} custom_orders {action_side} "
                     "you shoud reduce you position size or raise the stake_amount"
