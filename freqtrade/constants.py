@@ -80,7 +80,7 @@ TRADES_DTYPES = {
     "cost": "float64",
 }
 TRADING_MODES = ["spot", "margin", "futures"]
-MARGIN_MODES = ["cross", "isolated", ""]
+MARGIN_MODES = ["cross", "isolated", "onetradecross", ""]
 
 LAST_BT_RESULT_FN = ".last_result.json"
 FTHYPT_FILEVERSION = "fthypt_fileversion"

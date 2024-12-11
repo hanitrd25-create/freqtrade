@@ -54,7 +54,8 @@ class Binance(Exchange):
         # TradingMode.SPOT always supported and not required in this list
         # (TradingMode.MARGIN, MarginMode.CROSS),
         # (TradingMode.FUTURES, MarginMode.CROSS),
-        (TradingMode.FUTURES, MarginMode.ISOLATED)
+        (TradingMode.FUTURES, MarginMode.ISOLATED),
+        (TradingMode.FUTURES, MarginMode.ONETRADECROSS),
     ]
 
     def get_tickers(
@@ -94,10 +95,15 @@ class Binance(Exchange):
                 if (
                     assets_margin.get("multiAssetsMargin") is True
                     and self.margin_mode != MarginMode.CROSS
+                    and not (
+                        self._config["margin_mode"] == MarginMode.ONETRADECROSS
+                        and self._config["max_open_trades"] == 1
+                    )
                 ):
                     msg += (
-                        "\nMulti-Asset Mode is not supported by freqtrade. "
-                        "Please change 'Asset Mode' on your binance futures account."
+                        "\nMulti-Asset Mode is not supported by freqtrade for multiple trades. "
+                        "ensure 'margin_mode' is set to 'OneTradeCross' and 'max_open_trades' is 1,"
+                        "or change 'Asset Mode' on your binance futures account."
                     )
                 if msg:
                     raise OperationalException(msg)

@@ -10,6 +10,7 @@ class MarginMode(str, Enum):
 
     CROSS = "cross"
     ISOLATED = "isolated"
+    ONETRADECROSS = "onetradecross"
     NONE = ""
 
     def __str__(self):

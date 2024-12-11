@@ -1224,7 +1224,8 @@ class Exchange:
 
     def _lev_prep(self, pair: str, leverage: float, side: BuySell, accept_fail: bool = False):
         if self.trading_mode != TradingMode.SPOT:
-            self.set_margin_mode(pair, self.margin_mode, accept_fail)
+            if self.margin_mode != MarginMode.ONETRADECROSS:
+                self.set_margin_mode(pair, self.margin_mode, accept_fail)
             self._set_leverage(leverage, pair, accept_fail)
 
     def _get_params(
