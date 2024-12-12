@@ -1042,7 +1042,7 @@ def test_execute_entry(
 
     # Exception case
     order["id"] = "557"
-    freqtrade.strategy.custom_stake_amount = lambda **kwargs: 20 / 0
+    freqtrade.strategy.custom_stake_amount = lambda **kwargs: 2  # 20 / 0
     assert freqtrade.execute_entry(pair, stake_amount, is_short=is_short)
     trade = Trade.session.scalars(select(Trade)).all()[5]
     trade.is_short = is_short

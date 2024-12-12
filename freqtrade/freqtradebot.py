@@ -5,11 +5,12 @@ Freqtrade is the main module of this bot. It contains the class Freqtrade()
 import logging
 import traceback
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 from math import isclose
 from threading import Lock
 from time import sleep
-from typing import Any
+from typing import Any, Literal
 
 from schedule import Scheduler
 
@@ -70,6 +71,28 @@ from freqtrade.wallets import Wallets
 
 
 logger = logging.getLogger(__name__)
+
+
+# Once validated move that in a dataclass folder?
+@dataclass
+class OrderToCreate:
+    pair: str
+    type: Literal['limit', 'market']
+    side: Literal['buy', 'sell']
+    price: float
+    amount: float
+    stake_amount: float
+    leverage: float
+    order_tag: str
+    reduce_only: bool
+    time_in_force: str
+
+@dataclass
+class OrderToValidate:
+    type: Literal['limit', 'market']
+    side: Literal['buy', 'sell']
+    price: float
+    amount: float
 
 
 class FreqtradeBot(LoggingMixin):
@@ -931,10 +954,10 @@ class FreqtradeBot(LoggingMixin):
             self.strategy.confirm_trade_entry, default_retval=True
         )(
             pair=pair,
-            order_type=requested_order["type"],
-            amount=requested_order["amount"],
-            rate=requested_order["price"],
-            time_in_force=requested_order["time_in_force"],
+            order_type=requested_order.type,
+            amount=requested_order.amount,
+            rate=requested_order.price,
+            time_in_force=requested_order.time_in_force,
             current_time=datetime.now(timezone.utc),
             entry_tag=enter_tag,
             side=trade_side,
@@ -949,10 +972,10 @@ class FreqtradeBot(LoggingMixin):
         # Result processing
         order_obj = Order.parse_from_ccxt_object(
             executed_order,
-            requested_order["pair"],
-            requested_order["side"],
-            requested_order["amount"],
-            requested_order["price"],
+            requested_order.pair,
+            requested_order.side,
+            requested_order.amount,
+            requested_order.price,
         )
         order_obj.ft_order_tag = enter_tag
         order_id = executed_order["id"]
@@ -960,15 +983,15 @@ class FreqtradeBot(LoggingMixin):
         logger.info(f"Order {order_id} was created for {pair} and status is {order_status}.")
 
         # we assume the order is executed at the price requested
-        enter_limit_filled_price = requested_order["price"]
-        amount_requested = requested_order["amount"]
+        enter_limit_filled_price = requested_order.price
+        amount_requested = requested_order.amount
         amount = amount_requested
 
         if order_status == "expired" or order_status == "rejected":
             # return false if the order is not filled
             if float(executed_order["filled"]) == 0:
                 logger.warning(
-                    f"{name} {time_in_force} order with time in force {requested_order['type']} "
+                    f"{name} {time_in_force} order with time in force {requested_order.type} "
                     f"for {pair} is {order_status} by {self.exchange.name}."
                     " zero amount is fulfilled."
                 )
@@ -982,7 +1005,7 @@ class FreqtradeBot(LoggingMixin):
                     " %s amount fulfilled out of %s (%s remaining which is canceled).",
                     name,
                     time_in_force,
-                    requested_order["type"],
+                    requested_order.type,
                     pair,
                     order_status,
                     self.exchange.name,
@@ -1021,20 +1044,20 @@ class FreqtradeBot(LoggingMixin):
                 pair=pair,
                 base_currency=base_currency,
                 stake_currency=self.config["stake_currency"],
-                stake_amount=requested_order["stake_amount"],  # TODO must use executed_order
+                stake_amount=requested_order.stake_amount,  # TODO must use executed_order
                 amount=0,
                 is_open=True,
                 amount_requested=amount_requested,
                 fee_open=fee,
                 fee_close=fee,
                 open_rate=enter_limit_filled_price,
-                open_rate_requested=requested_order["price"],
+                open_rate_requested=requested_order.price,
                 open_date=open_date,
                 exchange=self.exchange.id,
                 strategy=self.strategy.get_strategy_name(),
                 enter_tag=enter_tag,
                 timeframe=timeframe_to_minutes(self.config["timeframe"]),
-                leverage=requested_order["leverage"],
+                leverage=requested_order.leverage,
                 is_short=is_short,
                 trading_mode=self.trading_mode,
                 funding_fees=funding_fees,
@@ -1051,7 +1074,7 @@ class FreqtradeBot(LoggingMixin):
             # This is additional entry, we reset fee_open_currency so timeout checking can work
             trade.is_open = True
             trade.fee_open_currency = None
-            trade.open_rate_requested = requested_order["price"]
+            trade.open_rate_requested = requested_order.price
             trade.set_funding_fees(funding_fees)
 
         trade.orders.append(order_obj)
@@ -1062,7 +1085,7 @@ class FreqtradeBot(LoggingMixin):
         # Updating wallets
         self.wallets.update()
 
-        self._notify_enter(trade, order_obj, requested_order["type"], sub_trade=pos_adjust)
+        self._notify_enter(trade, order_obj, requested_order.type, sub_trade=pos_adjust)
 
         if pos_adjust:
             if order_status == "closed":
@@ -1098,7 +1121,7 @@ class FreqtradeBot(LoggingMixin):
                 )
         return trade
 
-    def execute_orders_on_exchange(self, orders) -> list:
+    def execute_orders_on_exchange(self, orders: list[OrderToCreate]) -> list:
         """
         Execute orders on exchange with ccxt
         :return: List of orders creation response []
@@ -1109,14 +1132,14 @@ class FreqtradeBot(LoggingMixin):
         orders_responses = []
         for o in orders:
             order_res = self.exchange.create_order(
-                pair=o["pair"],
-                ordertype=o["type"],
-                side=o["side"],
-                amount=o["amount"],
-                rate=o["price"],
+                pair=o.pair,
+                ordertype=o.type,
+                side=o.side,
+                amount=o.amount,
+                rate=o.price,
                 reduceOnly=False,
-                time_in_force=o["time_in_force"],
-                leverage=o["leverage"],
+                time_in_force=o.time_in_force,
+                leverage=o.leverage,
             )
 
             orders_responses.append(order_res)
@@ -1126,13 +1149,13 @@ class FreqtradeBot(LoggingMixin):
     def get_valid_exit_orders_details(
         self,
         pair: str,
-        price: float | None,
+        price: float,
         amount: float,
-        is_short: False,
         exit_tag: str | None,
         order_type: str | None,
         trade: Trade,
     ) -> list[Any]:
+        is_short = trade.is_short
         trade_side: LongShort = "short" if is_short else "long"
         reduce_only = True
         action_side = "exit"
@@ -1173,45 +1196,44 @@ class FreqtradeBot(LoggingMixin):
 
         if custom_orders and len(custom_orders) > 0:
             for co in custom_orders:
-                order_details = {}  # TODO replace this with a dataclass
                 # According to the action_side entry or exit filter out opposite site orders
                 if co["side"] != trade.exit_side:
                     return []
 
-                # This won't be the final as the exchange set final price and quantity
-                # This should no be used at trade creation
+                # This won't be the final as the exchange sets the final price and quantity
+                # This should not be used at trade creation
                 req_stake_amount = (co["price"] * co["amount"]) / trade.leverage
                 order_type = safe_value_fallback(co, "type", None, action_side_order_type)
                 time_in_force = safe_value_fallback(co, "time_in_force", None, action_side_tif)
 
-                order_details["pair"] = pair
-                order_details["type"] = order_type
-                order_details["side"] = co["side"]
-                order_details["price"] = co["price"]
-                order_details["amount"] = co["amount"]
-                order_details["stake_amount"] = req_stake_amount
-                order_details["leverage"] = trade.leverage
-                order_details["order_tag"] = exit_tag
-                order_details["reduce_only"] = reduce_only
-                order_details["time_in_force"] = time_in_force
-
-                orders.append(order_details)
+                order_to_create = OrderToCreate(
+                    pair=pair,
+                    type=order_type or "limit",  # type: ignore
+                    side=co["side"],
+                    price=co["price"],
+                    amount=co["amount"],
+                    stake_amount=req_stake_amount,
+                    leverage=trade.leverage,
+                    order_tag=exit_tag or "",  # Ensure a valid string is passed
+                    reduce_only=reduce_only,
+                    time_in_force=time_in_force or "GTC",  # Ensure a valid string is passed
+                )
+                orders.append(order_to_create)
 
         else:
-            order_details = {
-                "pair": pair,
-                "type": action_side_order_type,
-                "action_side": action_side,
-                "side": trade.exit_side,
-                "price": limit_price_requested,
-                "amount": amount,
-                "stake_amount": None,
-                "leverage": trade.leverage,
-                "order_tag": exit_tag,
-                "retuce_only": reduce_only,
-                "time_in_force": action_side_tif,
-            }
-            orders.append(order_details)
+            order_to_create = OrderToCreate(
+                pair=pair,
+                type=action_side_order_type or "limit",  # Ensure type is either 'limit' or 'market'
+                side=trade.exit_side,
+                price=limit_price_requested,
+                amount=amount,
+                stake_amount=amount * price / trade.leverage,  # Ensure a valid float is calculated
+                leverage=trade.leverage,
+                order_tag=exit_tag or "",  # Ensure a valid string is passed
+                reduce_only=reduce_only,
+                time_in_force=action_side_tif or "GTC",  # Ensure a valid string is passed
+            )
+            orders.append(order_to_create)
 
         return [orders[0]]  # limited to one order for the moment
 
@@ -1220,13 +1242,13 @@ class FreqtradeBot(LoggingMixin):
         pair: str,
         price: float | None,
         stake_amount: float | None,
-        is_short: False,
+        is_short: bool,
         action_side: str,
         action_tag: str | None,
         action_reason: str | None,
         trade: Trade | None,
-        mode: EntryExecuteMode | None,
-        leverage_: float,
+        mode: EntryExecuteMode,
+        leverage_: float | None,
         order_type: str | None,
     ) -> list[Any]:
         """
@@ -1238,14 +1260,14 @@ class FreqtradeBot(LoggingMixin):
         trade_side: LongShort = "short" if is_short else "long"
 
         # Prepare default params according to side
-        side = "buy" if trade_side == "long" else "sell"
+        side: Literal['buy', 'sell'] = "buy" if trade_side == "long" else "sell"
         reduce_only = False
         action_side_tif = self.strategy.order_time_in_force["entry"]
         action_side_order_type = self.strategy.order_types["entry"]
 
         # Gather data to generate entry order the standard way
         limit_price_requested, stake_amount, leverage = self.get_valid_enter_price_and_stake(
-            pair, price, stake_amount, trade_side, action_tag, trade, mode, leverage_
+            pair, price or 0.0, stake_amount or 0.0, trade_side, action_tag, trade, mode, leverage_ or 1.0
         )
 
         # Generate orders with custom_orders
@@ -1262,38 +1284,38 @@ class FreqtradeBot(LoggingMixin):
 
         if custom_orders and len(custom_orders) > 0:
             for co in custom_orders:
-                order_details = {}  # TODO replace this with a dataclass
                 # According to the action_side entry or exit filter out opposite site orders
                 if co["side"] != side:
                     return []
 
-                # This won't be the final as the exchange set final price and quantity
-                # This should no be used at trade creation
+                # This won't be the final as the exchange sets the final price and quantity
+                # This should not be used at trade creation
                 req_stake_amount = (co["price"] * co["amount"]) / leverage
                 order_type = safe_value_fallback(co, "type", None, action_side_order_type)
                 time_in_force = safe_value_fallback(co, "time_in_force", None, action_side_tif)
 
-                order_details["pair"] = pair
-                order_details["type"] = order_type
-                order_details["side"] = co["side"]
-                order_details["price"] = co["price"]
-                order_details["amount"] = co["amount"]
-                order_details["stake_amount"] = req_stake_amount
-                order_details["leverage"] = leverage
-                order_details["order_tag"] = action_tag
-                order_details["reduce_only"] = reduce_only
-                order_details["time_in_force"] = time_in_force
-
-                orders.append(order_details)
+                order_to_create = OrderToCreate(
+                    pair=pair,
+                    type=order_type or "limit",  # type: ignore
+                    side=co["side"],
+                    price=co["price"],
+                    amount=co["amount"],
+                    stake_amount=req_stake_amount,
+                    leverage=leverage,
+                    order_tag=action_tag or "",  # Ensure a valid string is passed
+                    reduce_only=reduce_only,
+                    time_in_force=time_in_force or "GTC",  # Ensure a valid string is passed
+                )
+                orders.append(order_to_create)
 
             # TODO Validate that sum stake_amount from custom_orders is under < stake_amount
-            sum_stake_amount = sum(od["stake_amount"] for od in orders)
+            sum_stake_amount = sum(od.stake_amount for od in orders)
             if sum_stake_amount > stake_amount:
                 logger.warning(
                     f"custom_orders sum_stake_amount of {sum_stake_amount} "
                     f"is over stake_amount of {stake_amount}, "
                     f"aborting {pair} custom_orders {action_side} "
-                    "you shoud reduce you position size or raise the stake_amount"
+                    "you should reduce your position size or raise the stake_amount"
                 )
                 return []
 
@@ -1303,19 +1325,19 @@ class FreqtradeBot(LoggingMixin):
 
             amount = (stake_amount / limit_price_requested) * leverage
 
-            order_details = {
-                "pair": pair,
-                "type": action_side_order_type,
-                "side": side,
-                "price": limit_price_requested,
-                "amount": amount,
-                "stake_amount": stake_amount,
-                "leverage": leverage,
-                "order_tag": action_tag,
-                "retuce_only": reduce_only,
-                "time_in_force": action_side_tif,
-            }
-            orders.append(order_details)
+            order_to_create = OrderToCreate(
+                pair=pair,
+                type=action_side_order_type or "limit",  # Ensure type is either 'limit' or 'market'
+                side=side,
+                price=limit_price_requested,
+                amount=amount,
+                stake_amount=stake_amount,
+                leverage=leverage,
+                order_tag=action_tag or "",  # Ensure a valid string is passed
+                reduce_only=reduce_only,
+                time_in_force=action_side_tif or "GTC",  # Ensure a valid string is passed
+            )
+            orders.append(order_to_create)
 
         return [orders[0]]  # limited to one order for the moment
 
@@ -2227,7 +2249,7 @@ class FreqtradeBot(LoggingMixin):
         amount = self._safe_exit_amount(trade, trade.pair, sub_trade_amt or trade.amount)
 
         exit_orders = self.get_valid_exit_orders_details(
-            trade.pair, limit, amount, trade.is_short, exit_tag, order_type, trade
+            trade.pair, limit, amount, exit_tag, order_type, trade
         )
 
         if not exit_orders or len(exit_orders) == 0:
