@@ -2265,10 +2265,10 @@ class FreqtradeBot(LoggingMixin):
             and not strategy_safe_wrapper(self.strategy.confirm_trade_exit, default_retval=True)(
                 pair=trade.pair,
                 trade=trade,
-                order_type=req_exit_order["type"],
-                amount=req_exit_order["amount"],
-                rate=req_exit_order["price"],
-                time_in_force=req_exit_order["time_in_force"],
+                order_type=req_exit_order.type,
+                amount=req_exit_order.amount,
+                rate=req_exit_order.price,
+                time_in_force=req_exit_order.time_in_force,
                 exit_reason=exit_reason,
                 sell_reason=exit_reason,  # sellreason -> compatibility
                 current_time=datetime.now(timezone.utc),
@@ -2295,7 +2295,7 @@ class FreqtradeBot(LoggingMixin):
         trade.orders.append(order_obj)
 
         trade.exit_order_status = ""
-        trade.close_rate_requested = req_exit_order["price"]
+        trade.close_rate_requested = req_exit_order.price
         trade.exit_reason = exit_reason
 
         self._notify_exit(trade, order_type, sub_trade=bool(sub_trade_amt), order=order_obj)
