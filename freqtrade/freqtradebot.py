@@ -1267,7 +1267,8 @@ class FreqtradeBot(LoggingMixin):
 
         # Gather data to generate entry order the standard way
         limit_price_requested, stake_amount, leverage = self.get_valid_enter_price_and_stake(
-            pair, price or 0.0, stake_amount or 0.0, trade_side, action_tag, trade, mode, leverage_ or 1.0
+            pair, price or 0.0, stake_amount or
+            0.0, trade_side, action_tag, trade, mode, leverage_ or 1.0
         )
 
         # Generate orders with custom_orders
