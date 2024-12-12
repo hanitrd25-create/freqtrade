@@ -978,7 +978,7 @@ class FreqtradeBot(LoggingMixin):
             requested_order.amount,
             requested_order.price,
         )
-        order_obj.ft_order_tag = enter_tag
+        order_obj.ft_order_tag = requested_order.order_tag
         order_id = executed_order["id"]
         order_status = executed_order.get("status")
         logger.info(f"Order {order_id} was created for {pair} and status is {order_status}.")
@@ -1206,6 +1206,7 @@ class FreqtradeBot(LoggingMixin):
                 req_stake_amount = (co["price"] * co["amount"]) / trade.leverage
                 order_type = safe_value_fallback(co, "type", None, action_side_order_type)
                 time_in_force = safe_value_fallback(co, "time_in_force", None, action_side_tif)
+                order_tag = safe_value_fallback(co, "order_tag", None, exit_tag)
 
                 order_to_create = OrderToCreate(
                     pair=pair,
@@ -1215,7 +1216,7 @@ class FreqtradeBot(LoggingMixin):
                     amount=co["amount"],
                     stake_amount=req_stake_amount,
                     leverage=trade.leverage,
-                    order_tag=exit_tag or "",  # Ensure a valid string is passed
+                    order_tag=order_tag or "",  # Ensure a valid string is passed
                     reduce_only=reduce_only,
                     time_in_force=time_in_force or "GTC",  # Ensure a valid string is passed
                 )
@@ -2291,7 +2292,7 @@ class FreqtradeBot(LoggingMixin):
         order_obj = Order.parse_from_ccxt_object(
             executed_order, trade.pair, trade.exit_side, amount, limit
         )
-        order_obj.ft_order_tag = exit_reason
+        order_obj.ft_order_tag = req_exit_order.order_tag
         trade.orders.append(order_obj)
 
         trade.exit_order_status = ""
