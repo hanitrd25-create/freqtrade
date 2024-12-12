@@ -77,8 +77,8 @@ logger = logging.getLogger(__name__)
 @dataclass
 class OrderToCreate:
     pair: str
-    type: Literal['limit', 'market']
-    side: Literal['buy', 'sell']
+    type: Literal["limit", "market"]
+    side: Literal["buy", "sell"]
     price: float
     amount: float
     stake_amount: float
@@ -87,10 +87,11 @@ class OrderToCreate:
     reduce_only: bool
     time_in_force: str
 
+
 @dataclass
 class OrderToValidate:
-    type: Literal['limit', 'market']
-    side: Literal['buy', 'sell']
+    type: Literal["limit", "market"]
+    side: Literal["buy", "sell"]
     price: float
     amount: float
 
@@ -1260,14 +1261,14 @@ class FreqtradeBot(LoggingMixin):
         trade_side: LongShort = "short" if is_short else "long"
 
         # Prepare default params according to side
-        side: Literal['buy', 'sell'] = "buy" if trade_side == "long" else "sell"
+        side: Literal["buy", "sell"] = "buy" if trade_side == "long" else "sell"
         reduce_only = False
         action_side_tif = self.strategy.order_time_in_force["entry"]
         action_side_order_type = self.strategy.order_types["entry"]
 
         # Gather data to generate entry order the standard way
         limit_price_requested, stake_amount, leverage = self.get_valid_enter_price_and_stake(
-            pair, price ,stake_amount , trade_side, action_tag, trade, mode, leverage_
+            pair, price, stake_amount, trade_side, action_tag, trade, mode, leverage_
         )
 
         # Generate orders with custom_orders
