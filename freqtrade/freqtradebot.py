@@ -1241,7 +1241,7 @@ class FreqtradeBot(LoggingMixin):
         self,
         pair: str,
         price: float | None,
-        stake_amount: float | None,
+        stake_amount: float,
         is_short: bool,
         action_side: str,
         action_tag: str | None,
@@ -1267,8 +1267,7 @@ class FreqtradeBot(LoggingMixin):
 
         # Gather data to generate entry order the standard way
         limit_price_requested, stake_amount, leverage = self.get_valid_enter_price_and_stake(
-            pair, price or 0.0, stake_amount or
-            0.0, trade_side, action_tag, trade, mode, leverage_ or 1.0
+            pair, price ,stake_amount , trade_side, action_tag, trade, mode, leverage_
         )
 
         # Generate orders with custom_orders
