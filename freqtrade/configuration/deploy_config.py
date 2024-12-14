@@ -111,6 +111,7 @@ def ask_user_config() -> dict[str, Any]:
                 "binance",
                 "binanceus",
                 "bingx",
+                "bitget",
                 "gate",
                 "htx",
                 "kraken",

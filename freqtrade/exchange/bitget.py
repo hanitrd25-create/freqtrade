@@ -105,7 +105,6 @@ class Bitget(Exchange):
         return params
 
     def timeframe_to_milliseconds(self, timeframe: str) -> int:
-        """将时间框架转换为毫秒数"""
         return ccxt.Exchange.parse_timeframe(timeframe) * 1000
 
     async def _async_get_historic_ohlcv(
@@ -118,12 +117,10 @@ class Bitget(Exchange):
         until_ms: int | None = None,
     ) -> OHLCVResponse:
         try:
-            # 调用父类方法获取数据
             pair_data = await super()._async_get_historic_ohlcv(
                 pair, timeframe, since_ms, candle_type, raise_, until_ms
             )
 
-            # 解包返回的元组
             pair, _, candle_type, data, partial_candle = pair_data
 
             if candle_type not in (CandleType.FUNDING_RATE):
@@ -181,7 +178,7 @@ class Bitget(Exchange):
         }
 
         if timeframe not in timeframe_map:
-            raise Exception(f"{timeframe} 不在list")
+            raise Exception(f"{timeframe} not in timeframe list")
 
         smaller_tf, max_candles = timeframe_map[timeframe]
 

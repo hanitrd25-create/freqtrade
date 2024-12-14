@@ -1740,6 +1740,9 @@ def test_fetch_orders(default_conf, mocker, exchange_name, limit_order):
     if exchange_name == "bybit":
         expected = 3
 
+    if exchange_name == "bitget":
+        expected = 3
+
     exchange = get_patched_exchange(mocker, default_conf, api_mock, exchange=exchange_name)
     # Not available in dry-run
     assert exchange.fetch_orders("mocked", start_time) == []
@@ -2172,6 +2175,18 @@ def test_get_historic_ohlcv(default_conf, mocker, caplog, exchange_name, candle_
         raise TimeoutError()
 
     exchange._async_get_candle_history = MagicMock(side_effect=mock_get_candle_hist_error)
+    if exchange_name == "bitget":
+        ohlcv = [
+            [
+                int((datetime.now(timezone.utc).timestamp() - 1000) * 1000),
+                1,  # open
+                2,  # high
+                3,  # low
+                4,  # close
+                5,  # volume (in quote currency)
+            ]
+        ]
+        exchange._api_async.fetch_ohlcv = get_mock_coro(ohlcv)
     ret = exchange.get_historic_ohlcv(
         pair, "5m", dt_ts(dt_now() - timedelta(seconds=since)), candle_type=candle_type
     )

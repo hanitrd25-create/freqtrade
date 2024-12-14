@@ -362,7 +362,7 @@ def test_bitget_ohlcv_candle_limit(default_conf, mocker):
     for timeframe in timeframes:
         assert exchange.ohlcv_candle_limit(timeframe, CandleType.SPOT) == 1000
         assert exchange.ohlcv_candle_limit(timeframe, CandleType.FUTURES) == 1000
-        assert exchange.ohlcv_candle_limit(timeframe, CandleType.MARK) == 1000
+        assert exchange.ohlcv_candle_limit(timeframe, CandleType.MARK) == 200
         assert exchange.ohlcv_candle_limit(timeframe, CandleType.FUNDING_RATE) == 100
 
         assert exchange.ohlcv_candle_limit(timeframe, CandleType.SPOT, start_time) == 1000
