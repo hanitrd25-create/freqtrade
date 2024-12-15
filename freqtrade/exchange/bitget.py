@@ -5,9 +5,8 @@ import ccxt
 
 from freqtrade.constants import BuySell
 from freqtrade.enums import CandleType, MarginMode, PriceType, TradingMode
-from freqtrade.exceptions import DDosProtection, ExchangeError, OperationalException, TemporaryError
+from freqtrade.exceptions import ExchangeError
 from freqtrade.exchange import Exchange
-from freqtrade.exchange.common import retrier
 from freqtrade.exchange.exchange_types import FtHas, OHLCVResponse
 from freqtrade.util.datetime_helpers import dt_now, dt_ts
 
@@ -49,41 +48,6 @@ class Bitget(Exchange):
     _supported_trading_mode_margin_pairs: list[tuple[TradingMode, MarginMode]] = [
         (TradingMode.FUTURES, MarginMode.ISOLATED)
     ]
-
-    @property
-    def _ccxt_config(self) -> dict:
-        config = {}
-        if self.trading_mode == TradingMode.SPOT:
-            config.update({"options": {"defaultType": "spot"}})
-        elif self.trading_mode == TradingMode.FUTURES:
-            config.update({"options": {"defaultType": "swap"}})
-        config.update(super()._ccxt_config)
-        return config
-
-    @retrier
-    def additional_exchange_init(self) -> None:
-        try:
-            if not self._config["dry_run"]:
-                if self.trading_mode == TradingMode.FUTURES:
-                    # Set position mode to one-way (hedged = False)
-                    # self._api.set_position_mode(False, None, {'productType': 'USDT-FUTURES'})
-                    logger.info("Bitget: Position mode set to one-way.")
-
-                    # Ensure we're using the futures API
-                    self._api.options["defaultType"] = "swap"
-                else:
-                    # Ensure we're using the spot API
-                    self._api.options["defaultType"] = "spot"
-
-                # Rest of the method...
-        except ccxt.DDoSProtection as e:
-            raise DDosProtection(e) from e
-        except (ccxt.OperationFailed, ccxt.ExchangeError) as e:
-            raise TemporaryError(
-                f"Error in additional_exchange_init due to {e.__class__.__name__}. Message: {e}"
-            ) from e
-        except ccxt.BaseError as e:
-            raise OperationalException(e) from e
 
     def _get_params(
         self,
