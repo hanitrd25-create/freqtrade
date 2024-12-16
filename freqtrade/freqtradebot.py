@@ -1195,7 +1195,8 @@ class FreqtradeBot(LoggingMixin):
 
         orders = []
 
-        if custom_orders and len(custom_orders) > 0:
+        if ((custom_orders and len(custom_orders) > 0) & \
+            self.config.get("custom_orders_enable", False)):
             for co in custom_orders:
                 # According to the action_side entry or exit filter out opposite site orders
                 if co["side"] != trade.exit_side:
@@ -1284,7 +1285,8 @@ class FreqtradeBot(LoggingMixin):
 
         orders = []
 
-        if custom_orders and len(custom_orders) > 0:
+        if ((custom_orders and len(custom_orders) > 0) &
+            self.config.get("custom_orders_enable", False)):
             for co in custom_orders:
                 # According to the action_side entry or exit filter out opposite site orders
                 if co["side"] != side:
