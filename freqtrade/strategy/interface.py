@@ -112,6 +112,9 @@ class IStrategy(ABC, HyperStrategyMixin):
     position_adjustment_enable: bool = False
     max_entry_position_adjustment: int = -1
 
+    # Position adjustment is disabled by default
+    custom_orders_enable: bool = False
+
     # Number of seconds after which the candle will no longer result in a buy on expired candles
     ignore_buying_expired_candle_after: int = 0
 
