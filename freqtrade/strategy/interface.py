@@ -615,6 +615,30 @@ class IStrategy(ABC, HyperStrategyMixin):
         """
         return None
 
+    def adjust_custom_orders(
+        self,
+        pair: str,
+        trade: Trade | None,
+        leverage: float | None,
+        current_time: datetime,
+        **kwargs,
+    ) -> list | None:
+        """
+        Custom orders list to create or update, returning updated list of orders to create/update.
+
+        For full documentation please go to https://www.freqtrade.io/en/latest/strategy-advanced/
+
+        When not implemented by a strategy, returns None
+
+        :param pair: Pair that's currently analyzed
+        :param trade: trade object (None for initial entries).
+        :param leverage: Leverage selected for this trade.
+        :param current_time: datetime object, containing the current datetime
+        :param **kwargs: Ensure to keep this here so updates to this won't break your strategy.
+        :return array: Array of dict containing orders to create
+        """
+        return None
+
     def custom_stake_amount(
         self,
         pair: str,

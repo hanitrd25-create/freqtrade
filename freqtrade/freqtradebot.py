@@ -85,7 +85,8 @@ class OrderToCreate:
     leverage: float
     order_tag: str
     reduce_only: bool
-    time_in_force: str
+    time_in_force: Literal["GTC", "FOK", "IOC"]
+    trade_side: LongShort
 
 
 @dataclass
@@ -94,6 +95,10 @@ class OrderToValidate:
     side: Literal["buy", "sell"]
     price: float
     amount: float
+    action_side: Literal["entry", "exit"]
+    time_in_force: Literal["GTC", "FOK", "IOC"]
+    order_tag: str
+    trade_side: LongShort
 
 
 class FreqtradeBot(LoggingMixin):
@@ -316,6 +321,10 @@ class FreqtradeBot(LoggingMixin):
         if self.strategy.position_adjustment_enable:
             with self._exit_lock:
                 self.process_open_trade_positions()
+
+        if self.strategy.custom_orders_enable:
+            with self._exit_lock:
+                self.process_adjust_custom_orders()
 
         # Then looking for entry opportunities
         if self.get_free_open_trades():
@@ -764,6 +773,34 @@ class FreqtradeBot(LoggingMixin):
                         f"Unable to adjust position of trade for {trade.pair}: {exception}"
                     )
 
+    #
+    # Modify orders / Grid trading logic and methods
+    #
+    def process_adjust_custom_orders(self):
+        """
+        Tries to execute additional buy or sell orders for open trades (positions)
+        """
+        # Walk through each pair and check if it needs changes
+        for trade in Trade.get_open_trades():
+            # Do a wallets update (will be ratelimited to once per hour)
+            self.wallets.update(False)
+            try:
+                self.check_and_call_adjust_custom_orders(trade)
+            except DependencyException as exception:
+                logger.warning(f"Unable to adjust orders of trade for {trade.pair}: {exception}")
+
+    def check_and_call_adjust_custom_orders(self, trade: Trade):
+        """
+        Check the implemented trading strategy for adjustment command.
+        If the strategy triggers the adjustment, a new order gets issued.
+        Once that completes, the existing trade is modified to match new data.
+        """
+        orders_to_validate = self.strategy.adjust_custom_orders(trade)
+
+        executed_orders = self.execute_orders(trade, orders_to_validate)
+
+        return executed_orders
+
     def check_and_call_adjust_trade_position(self, trade: Trade):
         """
         Check the implemented trading strategy for adjustment command.
@@ -882,6 +919,32 @@ class FreqtradeBot(LoggingMixin):
         else:
             logger.info(f"Bids to asks delta for {pair} does not satisfy condition.")
             return False
+
+    def execute_orders(self, trade: Trade, ordersToValidate: list[OrderToValidate]):
+        """
+        Executes an entry and exits orders for the given pair
+        :param pair: pair for which we want to create a LIMIT order
+        :param stake_amount: amount of stake-currency for the pair
+        :return: True if an entry order is created, False if it fails.
+        :raise: DependencyException or it's subclasses like ExchangeError.
+        """
+
+        # Validate orders
+        ordersToCreate = self.get_validated_orders(trade, ordersToValidate)
+
+        # Filter out similar orders already present
+        # using order_tag only
+        entry_otc, exit_otc = self.filterOrdersToCreate(trade, ordersToCreate)
+
+        # Execute orders
+        executed_entry_orders_res = self.execute_orders_on_exchange(entry_otc)
+        executed_exit_orders_res = self.execute_orders_on_exchange(exit_otc)
+
+        # Handle order results
+        self.handle_orders_results(trade, executed_entry_orders_res)
+        self.handle_orders_results(trade, executed_exit_orders_res)
+
+        return True
 
     def execute_entry(
         self,
@@ -1195,8 +1258,9 @@ class FreqtradeBot(LoggingMixin):
 
         orders = []
 
-        if ((custom_orders and len(custom_orders) > 0) & \
-            self.config.get("custom_orders_enable", False)):
+        if (custom_orders and len(custom_orders) > 0) and self.config.get(
+            "custom_orders_enable", False
+        ):
             for co in custom_orders:
                 # According to the action_side entry or exit filter out opposite site orders
                 if co["side"] != trade.exit_side:
@@ -1220,6 +1284,7 @@ class FreqtradeBot(LoggingMixin):
                     order_tag=order_tag or "",  # Ensure a valid string is passed
                     reduce_only=reduce_only,
                     time_in_force=time_in_force or "GTC",  # Ensure a valid string is passed
+                    trade_side=trade_side
                 )
                 orders.append(order_to_create)
 
@@ -1235,10 +1300,194 @@ class FreqtradeBot(LoggingMixin):
                 order_tag=exit_tag or "",  # Ensure a valid string is passed
                 reduce_only=reduce_only,
                 time_in_force=action_side_tif or "GTC",  # Ensure a valid string is passed
+                trade_side=trade_side
             )
             orders.append(order_to_create)
 
         return [orders[0]]  # limited to one order for the moment
+
+    def get_validated_orders(
+        self, trade: Trade | None, ordersToValidate: list[OrderToValidate]
+    ) -> list[Any]:
+        """
+        This function shoud return a list of orders to create with validated
+        precision and amount
+        """
+        trade_side: LongShort = "short" if trade.is_short else "long"
+        orders = []
+
+        if (len(ordersToValidate) > 0) & self.config.get("custom_orders_enable", False):
+            for otv in ordersToValidate:
+                # TODO Validate Price with exchange prescision
+                amount = self.exchange.amount_to_precision(
+                    trade.pair, self._amount_to_contracts(trade.pair, otv["amount"])
+                )
+                needs_price = self.exchange._order_needs_price(otv["side"], otv["type"])
+                rate_for_order = (
+                    self.exchange.price_to_precision(trade.pair, otv["price"])
+                    if needs_price
+                    else None
+                )
+
+                # This won't be the final as the exchange sets the final price and quantity
+                # This should not be used at trade creation
+                req_stake_amount = (otv["price"] * otv["amount"]) / trade.leverage
+                reduce_only = True if otv["action_side"] == "exit" else False
+
+                order_to_create = OrderToCreate(
+                    pair=trade.pair,
+                    type=otv["type"],  # type: ignore
+                    side=otv["side"],
+                    price=rate_for_order,
+                    amount=amount,
+                    stake_amount=req_stake_amount,
+                    leverage=trade.leverage,
+                    order_tag=otv["order_tag"],  # Ensure a valid string is passed
+                    reduce_only=reduce_only,
+                    time_in_force=otv["time_in_force"],  # Ensure a valid string is passed
+                    trade_side=trade_side
+                )
+                orders.append(order_to_create)
+
+            # TODO Validate that sum stake_amount from custom_orders is under < stake_amount
+            sum_stake_amount = sum(od.stake_amount for od in orders)
+            if sum_stake_amount > self.config.get("stake_amount", 0):
+                logger.warning(
+                    f"custom_orders sum_stake_amount of {sum_stake_amount} "
+                    f"is over stake_amount of {self.config.get('stake_amount', 0)}, "
+                    f"aborting {trade.pair} custom_orders {otv['action_side']} "
+                    "you should reduce your position size or raise the stake_amount"
+                )
+                return []
+
+        return orders
+
+    def filterOrdersToCreate(
+        self, trade: Trade, ordersToCreate: list[OrderToCreate]
+    ) -> tuple[list[OrderToCreate], list[OrderToCreate]]:
+        """
+        Filter out orders that already exist in trade.orders with the same order_tag
+        Returns tuple of (entry_orders, exit_orders)
+        """
+        # Get existing order tags
+        existing_tags = {order.ft_order_tag for order in trade.orders}
+
+        # Filter orders by side and exclude those with existing tags
+        entry_otc: list[OrderToCreate] = []
+        exit_otc: list[OrderToCreate] = []
+
+        for order in ordersToCreate:
+            if order.side == trade.entry_side:
+                if order.order_tag in existing_tags:
+                    logger.info(
+                        f"Skipping {trade.entry_side} order with duplicate order_tag "
+                        f" '{order.order_tag}' for {trade.pair}. Skipped order: {order}"
+                    )
+                else:
+                    entry_otc.append(order)
+            else:
+                if order.order_tag in existing_tags:
+                    logger.info(
+                        f"Skipping {trade.exit_side} order with duplicate order_tag "
+                        f" '{order.order_tag}' for {trade.pair}. Skipped order: {order}"
+                    )
+                else:
+                    exit_otc.append(order)
+
+        return entry_otc, exit_otc
+
+    def handle_orders_results(self, trade: Trade, executed_orders_res: list[Any]) -> list[Any]:
+        for exo in executed_orders_res:
+            order_obj = Order.parse_from_ccxt_object(
+                exo,
+                exo.pair,
+                exo.side,
+                exo.amount,
+                exo.price,
+            )
+            order_obj.ft_order_tag = exo.order_tag
+
+            order_id = exo["id"]
+            order_status = exo.get("status")
+            logger.info(
+                f"Order {order_id} was created for {exo.pair} and status is {order_status}."
+            )
+
+            # we assume the order is executed at the price requested
+            enter_limit_filled_price = exo.price
+            amount_requested = exo.amount
+            amount = amount_requested
+
+            if order_status == "expired" or order_status == "rejected":
+                # return false if the order is not filled
+                if float(exo["filled"]) == 0:
+                    logger.warning(
+                        f"{exo.trade_side.capitalize()} {exo.time_in_force} "
+                        f"order with time in force {exo.type} "
+                        f"for {exo.pair} is {order_status} by {self.exchange.name}."
+                        " zero amount is fulfilled."
+                    )
+                    return False
+                else:
+                    # the order is partially fulfilled
+                    # in case of IOC orders we can check immediately
+                    # if the order is fulfilled fully or partially
+                    logger.warning(
+                        "%s %s order with time in force %s for %s is %s by %s."
+                        " %s amount fulfilled out of %s (%s remaining which is canceled).",
+                        exo.trade_side.capitalize(),
+                        exo.time_in_force,
+                        exo.type,
+                        exo.pair,
+                        order_status,
+                        self.exchange.name,
+                        exo["filled"],
+                        exo["amount"],
+                        exo["remaining"],
+                    )
+                    amount = safe_value_fallback(exo, "filled", "amount", amount_requested)
+                    enter_limit_filled_price = safe_value_fallback(
+                        exo, "average", "price", enter_limit_filled_price
+                    )
+
+            # in case of FOK the order may be filled immediately and fully
+            elif order_status == "closed":
+                amount = safe_value_fallback(exo, "filled", "amount", amount_requested)
+                enter_limit_filled_price = safe_value_fallback(
+                    exo, "average", "price", exo["price"]
+                )
+
+            # TODO: fee must correspond to the sum fees of all filled orders
+            # Result usage and Trade update
+            # Fee is applied twice because we make a LIMIT_BUY and LIMIT_SELL
+            fee = self.exchange.get_fee(symbol=exo.pair, taker_or_maker="maker")
+            base_currency = self.exchange.get_pair_base_currency(exo.pair)
+            open_date = datetime.now(timezone.utc)
+
+            funding_fees = self.exchange.get_funding_fees(
+                pair=exo.pair,
+                amount=amount + trade.amount if trade else amount,
+                is_short=trade.is_short,
+                open_date=trade.date_last_filled_utc if trade else open_date,
+            )
+
+            # This is additional entry, we reset fee_open_currency so timeout checking can work
+            trade.is_open = True
+            trade.fee_open_currency = None
+            trade.open_rate_requested = enter_limit_filled_price
+            trade.set_funding_fees(funding_fees)
+
+            trade.orders.append(order_obj)
+            trade.recalc_trade_from_orders()
+            Trade.session.add(trade)
+            Trade.commit()
+
+            # Updating wallets
+            self.wallets.update()
+
+            self._notify_enter(trade, order_obj, exo.type, sub_trade=True)
+
+        return True
 
     def get_valid_entry_orders_details(
         self,
@@ -1285,8 +1534,9 @@ class FreqtradeBot(LoggingMixin):
 
         orders = []
 
-        if ((custom_orders and len(custom_orders) > 0) &
-            self.config.get("custom_orders_enable", False)):
+        if (custom_orders and len(custom_orders) > 0) and self.config.get(
+            "custom_orders_enable", False
+        ):
             for co in custom_orders:
                 # According to the action_side entry or exit filter out opposite site orders
                 if co["side"] != side:
@@ -1309,6 +1559,7 @@ class FreqtradeBot(LoggingMixin):
                     order_tag=action_tag or "",  # Ensure a valid string is passed
                     reduce_only=reduce_only,
                     time_in_force=time_in_force or "GTC",  # Ensure a valid string is passed
+                    trade_side=trade_side
                 )
                 orders.append(order_to_create)
 
@@ -1340,6 +1591,7 @@ class FreqtradeBot(LoggingMixin):
                 order_tag=action_tag or "",  # Ensure a valid string is passed
                 reduce_only=reduce_only,
                 time_in_force=action_side_tif or "GTC",  # Ensure a valid string is passed
+                trade_side=trade_side
             )
             orders.append(order_to_create)
 
