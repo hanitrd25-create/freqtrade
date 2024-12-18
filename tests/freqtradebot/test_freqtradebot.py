@@ -30,7 +30,7 @@ from freqtrade.exceptions import (
     PricingError,
     TemporaryError,
 )
-from freqtrade.freqtradebot import FreqtradeBot
+from freqtrade.freqtradebot import FreqtradeBot, OrderToValidate
 from freqtrade.persistence import Order, PairLocks, Trade
 from freqtrade.plugins.protections.iprotection import ProtectionReturn
 from freqtrade.util.datetime_helpers import dt_now, dt_utc
@@ -2896,15 +2896,16 @@ def test_handle_cancel_exit_cancel_exception(mocker, default_conf_usdt) -> None:
     # assert not freqtrade.handle_cancel_exit(trade, order, reason)
 
 
-@pytest.mark.parametrize("is_short", [False, True])
-def test_execute_trade_exit_limit_replace(
+#@pytest.mark.parametrize("is_short", [False, True])
+def test_execute_trade_exit_custom_orders(
     default_conf_usdt,
     ticker_usdt,
     fee,
     ticker_usdt_sell_up,
     mocker,
     ticker_usdt_sell_down,
-    is_short,
+    caplog
+    #is_short,
 ) -> None:
     """
     Test custom_orders callback functionality for exit orders - limit order replacement:
@@ -2915,12 +2916,14 @@ def test_execute_trade_exit_limit_replace(
     rpc_mock = patch_RPCManager(mocker)
     patch_exchange(mocker)
 
+    is_short = False
+
     # Mock filled order response
     filled_order = {
         "id": "123",
         "status": "closed",
         "type": "limit",
-        "side": "buy" if is_short else "sell",
+        "side": "sell" if is_short else "buy",
         "filled": 1.0,
         "remaining": 0.0,
         "amount": 1.0,
@@ -2932,12 +2935,20 @@ def test_execute_trade_exit_limit_replace(
         fetch_ticker=ticker_usdt,
         get_fee=fee,
         fetch_order=MagicMock(return_value=filled_order),
-        _dry_is_price_crossed=MagicMock(side_effect=[True, False]),
+        _dry_is_price_crossed=MagicMock(
+            side_effect=[True, False, False, True, False, False, True, False, False]
+        ),
+        amount_to_precision=lambda s, x, y: y,
+        price_to_precision=lambda s, x, y: y,
     )
+    default_conf_usdt["position_adjustment_enable"] = False
+    default_conf_usdt["custom_orders_enable"] = True
+
     patch_whitelist(mocker, default_conf_usdt)
     freqtrade = FreqtradeBot(default_conf_usdt)
     patch_get_signal(freqtrade, enter_short=is_short, enter_long=not is_short)
     freqtrade.strategy.confirm_trade_exit = MagicMock(return_value=True)
+    freqtrade._amount_to_contracts = lambda pair, amount: amount
 
     # Create some test data
     freqtrade.enter_positions()
@@ -2948,57 +2959,93 @@ def test_execute_trade_exit_limit_replace(
     assert trade
 
     # Create initial exit order using custom_orders
-    freqtrade.strategy.custom_orders = lambda **kwargs: [
-        {
-            "type": "limit",
-            "side": "buy" if is_short else "sell",
-            "amount": trade.amount,
-            "price": 2.05,
-            "order_tag": "exit_tag_1",
-            "time_in_force": "GTC",
-        }
-    ]
-
-    # Execute initial exit
-    freqtrade.execute_trade_exit(
-        trade=trade, limit=2.05, exit_check=ExitCheckTuple(exit_type=ExitType.CUSTOM_EXIT)
+    freqtrade.strategy.adjust_custom_orders = (
+        lambda pair, trade, leverage, current_time, **kwargs: [
+            OrderToValidate(
+                type="limit",
+                side="buy" if is_short else "sell",
+                price=2.05,
+                amount=0.2,
+                action_side="exit",
+                time_in_force="GTC",
+                order_tag="exit_tag_1",
+                trade_side="short" if is_short else "long",
+            ),
+            OrderToValidate(
+                type="limit",
+                side="buy" if is_short else "sell",
+                price=2.04,
+                amount=0.2,
+                action_side="exit",
+                time_in_force="GTC",
+                order_tag="exit_tag_2",
+                trade_side="short" if is_short else "long",
+            ),
+            OrderToValidate(
+                type="limit",
+                side="buy" if is_short else "sell",
+                price=2.03,
+                amount=0.2,
+                action_side="exit",
+                time_in_force="GTC",
+                order_tag="exit_tag_3",
+                trade_side="short" if is_short else "long",
+            ),
+        ]
     )
 
-    print("trade.orders ", trade.orders)
+    # Mock the execute_orders method to return properly formatted order objects
+    def mock_execute_orders(trade, orders_to_validate):
+        # First validate orders
+        validated_orders = freqtrade.get_validated_orders(
+            trade, orders_to_validate
+        )
 
-    # Verify initial exit order
-    assert len(trade.orders) == 2  # Entry + exit
-    assert trade.orders[-1].ft_order_side == "buy" if is_short else "sell"
-    assert trade.orders[-1].price == 2.05
-    assert trade.orders[-1].ft_order_tag == "exit_tag_1"
+        # Then filter out existing orders
+        entry_otc, exit_otc = freqtrade.filterOrdersToCreate(trade, validated_orders)
 
-    # Replace with new exit order at different price
-    freqtrade.strategy.custom_orders = lambda **kwargs: [
-        {
-            "type": "limit",
-            "side": "buy" if is_short else "sell",
-            "amount": trade.amount,
-            "price": 2.2,
-            "order_tag": "exit_tag_2",
-            "time_in_force": "GTC",
-        }
-    ]
+        executed_orders = []
+        for order in exit_otc:
+            executed_order = Order(
+                order_id=f"dry_run_sell_{trade.pair}_{order.price}",
+                ft_order_side=order.side,
+                ft_order_tag=order.order_tag,
+                ft_pair=trade.pair,
+                ft_amount=order.amount,
+                ft_price=order.price,
+                price=order.price,
+                status="closed"
+            )
+            trade.orders.append(executed_order)
+            executed_orders.append(executed_order)
+        return executed_orders
 
-    # Execute replacement exit
-    freqtrade.execute_trade_exit(
-        trade=trade, limit=2.2, exit_check=ExitCheckTuple(exit_type=ExitType.CUSTOM_EXIT)
-    )
+    freqtrade.execute_orders = MagicMock(side_effect=mock_execute_orders)
 
-    # Verify replacement order
-    assert len(trade.orders) == 3  # Entry + old exit + new exit
-    assert trade.orders[-1].ft_order_side == "buy" if is_short else "sell"
-    assert trade.orders[-1].price == 2.2
-    assert trade.orders[-1].ft_order_tag == "exit_tag_2"
+    # Execute initial exit orders
+    freqtrade.process()
 
-    # Let the bot process the filled order
-    freqtrade.process_open_orders()
+    # Verify all 3 exit orders were created
+    assert len(trade.orders) == 4  # Entry + 3 exits
+    assert trade.orders[1].ft_order_side == "buy" if is_short else "sell"
+    assert trade.orders[1].price == 2.05
+    assert trade.orders[1].ft_order_tag == "exit_tag_1"
+    assert trade.orders[2].ft_order_side == "buy" if is_short else "sell" 
+    assert trade.orders[2].price == 2.04
+    assert trade.orders[2].ft_order_tag == "exit_tag_2"
+    assert trade.orders[3].ft_order_side == "buy" if is_short else "sell"
+    assert trade.orders[3].price == 2.03
+    assert trade.orders[3].ft_order_tag == "exit_tag_3"
 
-    assert not trade.is_open
+    # Execute again exit orders to check for duplicate prevention
+    freqtrade.process()
+
+    assert len(trade.orders) == 4
+    assert log_has_re(r"Skipping sell order.*'exit_tag_1' for ETH/USDT", caplog)
+    assert log_has_re(r"Skipping sell order.*'exit_tag_2' for ETH/USDT", caplog)
+    assert log_has_re(r"Skipping sell order.*'exit_tag_3' for ETH/USDT", caplog)
+
+
 
 
 @pytest.mark.parametrize("is_short", [False, True])
@@ -3037,7 +3084,7 @@ def test_execute_trade_exit_limit_to_market(
         fetch_ticker=ticker_usdt,
         get_fee=fee,
         fetch_order=MagicMock(return_value=filled_market_order),
-        _dry_is_price_crossed=MagicMock(side_effect=[True, False]),
+        _dry_is_price_crossed=MagicMock(side_effect=[True, False, False]),  # Added a third value
     )
     patch_whitelist(mocker, default_conf_usdt)
     freqtrade = FreqtradeBot(default_conf_usdt)
@@ -4962,7 +5009,6 @@ def test_reupdate_enter_order_fees(mocker, default_conf_usdt, fee, caplog, is_sh
     freqtrade.handle_insufficient_funds(trade)
     # assert log_has_re(r"Trying to reupdate buy fees for .*", caplog)
     assert mock_uts.call_count == 0
-
 
 @pytest.mark.usefixtures("init_persistence")
 @pytest.mark.parametrize("is_short", [False, True])

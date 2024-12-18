@@ -795,7 +795,9 @@ class FreqtradeBot(LoggingMixin):
         If the strategy triggers the adjustment, a new order gets issued.
         Once that completes, the existing trade is modified to match new data.
         """
-        orders_to_validate = self.strategy.adjust_custom_orders(trade)
+        orders_to_validate = self.strategy.adjust_custom_orders(
+            trade.pair, trade, trade.leverage, datetime.now(timezone.utc)
+        )
 
         executed_orders = self.execute_orders(trade, orders_to_validate)
 
@@ -928,7 +930,6 @@ class FreqtradeBot(LoggingMixin):
         :return: True if an entry order is created, False if it fails.
         :raise: DependencyException or it's subclasses like ExchangeError.
         """
-
         # Validate orders
         ordersToCreate = self.get_validated_orders(trade, ordersToValidate)
 
@@ -1307,10 +1308,10 @@ class FreqtradeBot(LoggingMixin):
         return [orders[0]]  # limited to one order for the moment
 
     def get_validated_orders(
-        self, trade: Trade | None, ordersToValidate: list[OrderToValidate]
+        self, trade: Trade, ordersToValidate: list[OrderToValidate]
     ) -> list[Any]:
         """
-        This function shoud return a list of orders to create with validated
+        This function should return a list of orders to create with validated
         precision and amount
         """
         trade_side: LongShort = "short" if trade.is_short else "long"
@@ -1318,33 +1319,30 @@ class FreqtradeBot(LoggingMixin):
 
         if (len(ordersToValidate) > 0) & self.config.get("custom_orders_enable", False):
             for otv in ordersToValidate:
-                # TODO Validate Price with exchange prescision
                 amount = self.exchange.amount_to_precision(
-                    trade.pair, self._amount_to_contracts(trade.pair, otv["amount"])
+                    trade.pair, self._amount_to_contracts(trade.pair, otv.amount)
                 )
-                needs_price = self.exchange._order_needs_price(otv["side"], otv["type"])
+                needs_price = self.exchange._order_needs_price(otv.side, otv.type)
                 rate_for_order = (
-                    self.exchange.price_to_precision(trade.pair, otv["price"])
+                    self.exchange.price_to_precision(trade.pair, otv.price)
                     if needs_price
                     else None
                 )
 
-                # This won't be the final as the exchange sets the final price and quantity
-                # This should not be used at trade creation
-                req_stake_amount = (otv["price"] * otv["amount"]) / trade.leverage
-                reduce_only = True if otv["action_side"] == "exit" else False
+                req_stake_amount = (rate_for_order * amount) / trade.leverage
+                reduce_only = True if otv.action_side == "exit" else False
 
                 order_to_create = OrderToCreate(
                     pair=trade.pair,
-                    type=otv["type"],  # type: ignore
-                    side=otv["side"],
+                    type=otv.type,
+                    side=otv.side,
                     price=rate_for_order,
                     amount=amount,
                     stake_amount=req_stake_amount,
                     leverage=trade.leverage,
-                    order_tag=otv["order_tag"],  # Ensure a valid string is passed
+                    order_tag=otv.order_tag,  # Ensure a valid string is passed
                     reduce_only=reduce_only,
-                    time_in_force=otv["time_in_force"],  # Ensure a valid string is passed
+                    time_in_force=otv.time_in_force,  # Ensure a valid string is passed
                     trade_side=trade_side
                 )
                 orders.append(order_to_create)
@@ -1355,7 +1353,7 @@ class FreqtradeBot(LoggingMixin):
                 logger.warning(
                     f"custom_orders sum_stake_amount of {sum_stake_amount} "
                     f"is over stake_amount of {self.config.get('stake_amount', 0)}, "
-                    f"aborting {trade.pair} custom_orders {otv['action_side']} "
+                    f"aborting {trade.pair} custom_orders {otv.action_side} "
                     "you should reduce your position size or raise the stake_amount"
                 )
                 return []
@@ -1397,97 +1395,104 @@ class FreqtradeBot(LoggingMixin):
         return entry_otc, exit_otc
 
     def handle_orders_results(self, trade: Trade, executed_orders_res: list[Any]) -> list[Any]:
-        for exo in executed_orders_res:
-            order_obj = Order.parse_from_ccxt_object(
-                exo,
-                exo.pair,
-                exo.side,
-                exo.amount,
-                exo.price,
-            )
-            order_obj.ft_order_tag = exo.order_tag
+        try:
+            for exo in executed_orders_res:
+                order_obj = Order.parse_from_ccxt_object(
+                    exo,
+                    trade.pair,
+                    exo.side,
+                    exo.amount,
+                    exo.price,
+                )
+                order_obj.ft_order_tag = exo.order_tag
 
-            order_id = exo["id"]
-            order_status = exo.get("status")
-            logger.info(
-                f"Order {order_id} was created for {exo.pair} and status is {order_status}."
-            )
-
-            # we assume the order is executed at the price requested
-            enter_limit_filled_price = exo.price
-            amount_requested = exo.amount
-            amount = amount_requested
-
-            if order_status == "expired" or order_status == "rejected":
-                # return false if the order is not filled
-                if float(exo["filled"]) == 0:
-                    logger.warning(
-                        f"{exo.trade_side.capitalize()} {exo.time_in_force} "
-                        f"order with time in force {exo.type} "
-                        f"for {exo.pair} is {order_status} by {self.exchange.name}."
-                        " zero amount is fulfilled."
-                    )
-                    return False
-                else:
-                    # the order is partially fulfilled
-                    # in case of IOC orders we can check immediately
-                    # if the order is fulfilled fully or partially
-                    logger.warning(
-                        "%s %s order with time in force %s for %s is %s by %s."
-                        " %s amount fulfilled out of %s (%s remaining which is canceled).",
-                        exo.trade_side.capitalize(),
-                        exo.time_in_force,
-                        exo.type,
-                        exo.pair,
-                        order_status,
-                        self.exchange.name,
-                        exo["filled"],
-                        exo["amount"],
-                        exo["remaining"],
-                    )
-                    amount = safe_value_fallback(exo, "filled", "amount", amount_requested)
-                    enter_limit_filled_price = safe_value_fallback(
-                        exo, "average", "price", enter_limit_filled_price
-                    )
-
-            # in case of FOK the order may be filled immediately and fully
-            elif order_status == "closed":
-                amount = safe_value_fallback(exo, "filled", "amount", amount_requested)
-                enter_limit_filled_price = safe_value_fallback(
-                    exo, "average", "price", exo["price"]
+                order_id = exo["id"]
+                order_status = exo.get("status")
+                logger.info(
+                    f"Order {order_id} was created for {exo.pair} and status is {order_status}."
                 )
 
-            # TODO: fee must correspond to the sum fees of all filled orders
-            # Result usage and Trade update
-            # Fee is applied twice because we make a LIMIT_BUY and LIMIT_SELL
-            fee = self.exchange.get_fee(symbol=exo.pair, taker_or_maker="maker")
-            base_currency = self.exchange.get_pair_base_currency(exo.pair)
-            open_date = datetime.now(timezone.utc)
+                # we assume the order is executed at the price requested
+                enter_limit_filled_price = exo.price
+                amount_requested = exo.amount
+                amount = amount_requested
 
-            funding_fees = self.exchange.get_funding_fees(
-                pair=exo.pair,
-                amount=amount + trade.amount if trade else amount,
-                is_short=trade.is_short,
-                open_date=trade.date_last_filled_utc if trade else open_date,
+                if order_status == "expired" or order_status == "rejected":
+                    # return false if the order is not filled
+                    if float(exo["filled"]) == 0:
+                        logger.warning(
+                            f"{exo.trade_side.capitalize()} {exo.time_in_force} "
+                            f"order with time in force {exo.type} "
+                            f"for {exo.pair} is {order_status} by {self.exchange.name}."
+                            " zero amount is fulfilled."
+                        )
+                        return False
+                    else:
+                        # the order is partially fulfilled
+                        # in case of IOC orders we can check immediately
+                        # if the order is fulfilled fully or partially
+                        logger.warning(
+                            "%s %s order with time in force %s for %s is %s by %s."
+                            " %s amount fulfilled out of %s (%s remaining which is canceled).",
+                            exo.trade_side.capitalize(),
+                            exo.time_in_force,
+                            exo.type,
+                            trade.pair,
+                            order_status,
+                            self.exchange.name,
+                            exo["filled"],
+                            exo["amount"],
+                            exo["remaining"],
+                        )
+                        amount = safe_value_fallback(exo, "filled", "amount", amount_requested)
+                        enter_limit_filled_price = safe_value_fallback(
+                            exo, "average", "price", enter_limit_filled_price
+                        )
+
+                # in case of FOK the order may be filled immediately and fully
+                elif order_status == "closed":
+                    amount = safe_value_fallback(exo, "filled", "amount", amount_requested)
+                    enter_limit_filled_price = safe_value_fallback(
+                        exo, "average", "price", exo["price"]
+                    )
+
+                # TODO: fee must correspond to the sum fees of all filled orders
+                # Result usage and Trade update
+                # Fee is applied twice because we make a LIMIT_BUY and LIMIT_SELL
+                fee = self.exchange.get_fee(symbol=exo.pair, taker_or_maker="maker")
+                base_currency = self.exchange.get_pair_base_currency(trade.pair)
+                open_date = datetime.now(timezone.utc)
+
+                funding_fees = self.exchange.get_funding_fees(
+                    pair=trade.pair,
+                    amount=amount + trade.amount if trade else amount,
+                    is_short=trade.is_short,
+                    open_date=trade.date_last_filled_utc if trade else open_date,
+                )
+
+                # This is additional entry, we reset fee_open_currency so timeout checking can work
+                trade.is_open = True
+                trade.fee_open_currency = None
+                trade.open_rate_requested = enter_limit_filled_price
+                trade.set_funding_fees(funding_fees)
+
+                trade.orders.append(order_obj)
+                trade.recalc_trade_from_orders()
+                Trade.session.add(trade)
+                Trade.commit()
+
+                # Updating wallets
+                self.wallets.update()
+
+                self._notify_enter(trade, order_obj, exo.type, sub_trade=True)
+
+            return True
+        except Exception as e:
+            logger.warning(
+                f"Failed to handle orders results: {e.__class__.__name__} - {e}. "
+                f"Trade: {trade}, Orders: {executed_orders_res}"
             )
-
-            # This is additional entry, we reset fee_open_currency so timeout checking can work
-            trade.is_open = True
-            trade.fee_open_currency = None
-            trade.open_rate_requested = enter_limit_filled_price
-            trade.set_funding_fees(funding_fees)
-
-            trade.orders.append(order_obj)
-            trade.recalc_trade_from_orders()
-            Trade.session.add(trade)
-            Trade.commit()
-
-            # Updating wallets
-            self.wallets.update()
-
-            self._notify_enter(trade, order_obj, exo.type, sub_trade=True)
-
-        return True
+            return False
 
     def get_valid_entry_orders_details(
         self,
