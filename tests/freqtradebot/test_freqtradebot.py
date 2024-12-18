@@ -2896,7 +2896,7 @@ def test_handle_cancel_exit_cancel_exception(mocker, default_conf_usdt) -> None:
     # assert not freqtrade.handle_cancel_exit(trade, order, reason)
 
 
-#@pytest.mark.parametrize("is_short", [False, True])
+@pytest.mark.parametrize("is_short", [False, True])
 def test_execute_trade_exit_custom_orders(
     default_conf_usdt,
     ticker_usdt,
@@ -2904,8 +2904,8 @@ def test_execute_trade_exit_custom_orders(
     ticker_usdt_sell_up,
     mocker,
     ticker_usdt_sell_down,
-    caplog
-    #is_short,
+    caplog,
+    is_short,
 ) -> None:
     """
     Test custom_orders callback functionality for exit orders - limit order replacement:
@@ -2915,8 +2915,6 @@ def test_execute_trade_exit_custom_orders(
     """
     rpc_mock = patch_RPCManager(mocker)
     patch_exchange(mocker)
-
-    is_short = False
 
     # Mock filled order response
     filled_order = {
@@ -3030,7 +3028,7 @@ def test_execute_trade_exit_custom_orders(
     assert trade.orders[1].ft_order_side == "buy" if is_short else "sell"
     assert trade.orders[1].price == 2.05
     assert trade.orders[1].ft_order_tag == "exit_tag_1"
-    assert trade.orders[2].ft_order_side == "buy" if is_short else "sell" 
+    assert trade.orders[2].ft_order_side == "buy" if is_short else "sell"
     assert trade.orders[2].price == 2.04
     assert trade.orders[2].ft_order_tag == "exit_tag_2"
     assert trade.orders[3].ft_order_side == "buy" if is_short else "sell"
@@ -3041,9 +3039,10 @@ def test_execute_trade_exit_custom_orders(
     freqtrade.process()
 
     assert len(trade.orders) == 4
-    assert log_has_re(r"Skipping sell order.*'exit_tag_1' for ETH/USDT", caplog)
-    assert log_has_re(r"Skipping sell order.*'exit_tag_2' for ETH/USDT", caplog)
-    assert log_has_re(r"Skipping sell order.*'exit_tag_3' for ETH/USDT", caplog)
+    order_side = "buy" if is_short else "sell"
+    assert log_has_re(f"Skipping {order_side} order.*'exit_tag_1' for ETH/USDT", caplog)
+    assert log_has_re(f"Skipping {order_side} order.*'exit_tag_2' for ETH/USDT", caplog)
+    assert log_has_re(f"Skipping {order_side} order.*'exit_tag_3' for ETH/USDT", caplog)
 
 
 
