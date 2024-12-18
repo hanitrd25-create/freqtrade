@@ -600,6 +600,18 @@ class Backtesting:
             # This should not be reached...
             return row[OPEN_IDX]
 
+    def _get_adjust_custom_orders_for_candle(
+        self, trade: LocalTrade, row: tuple, current_time: datetime
+    ) -> LocalTrade:
+
+        orders_to_validate = self.strategy.adjust_custom_orders(
+            trade.pair, trade, trade.leverage, current_time
+        )
+
+        trade = self.execute_orders(trade, orders_to_validate)
+
+        return trade
+
     def _get_adjust_trade_entry_for_candle(
         self, trade: LocalTrade, row: tuple, current_time: datetime
     ) -> LocalTrade:
@@ -865,6 +877,10 @@ class Backtesting:
         # Check if we need to adjust our current positions
         if self.strategy.position_adjustment_enable:
             trade = self._get_adjust_trade_entry_for_candle(trade, row, current_time)
+
+        # Check if we need to adjust our current positions (custom_orders)
+        if self.strategy.custom_orders_enable:
+            trade = self._get_adjust_custom_orders_for_candle(trade, row, current_time)
 
         if trade.is_open:
             enter = row[SHORT_IDX] if trade.is_short else row[LONG_IDX]

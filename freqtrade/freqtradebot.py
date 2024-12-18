@@ -942,10 +942,10 @@ class FreqtradeBot(LoggingMixin):
         executed_exit_orders_res = self.execute_orders_on_exchange(exit_otc)
 
         # Handle order results
-        self.handle_orders_results(trade, executed_entry_orders_res)
-        self.handle_orders_results(trade, executed_exit_orders_res)
+        trade = self.handle_orders_results(trade, executed_entry_orders_res)
+        trade = self.handle_orders_results(trade, executed_exit_orders_res)
 
-        return True
+        return trade
 
     def execute_entry(
         self,
@@ -1426,7 +1426,6 @@ class FreqtradeBot(LoggingMixin):
                             f"for {exo.pair} is {order_status} by {self.exchange.name}."
                             " zero amount is fulfilled."
                         )
-                        return False
                     else:
                         # the order is partially fulfilled
                         # in case of IOC orders we can check immediately
@@ -1486,13 +1485,13 @@ class FreqtradeBot(LoggingMixin):
 
                 self._notify_enter(trade, order_obj, exo.type, sub_trade=True)
 
-            return True
+            return trade
         except Exception as e:
             logger.warning(
                 f"Failed to handle orders results: {e.__class__.__name__} - {e}. "
                 f"Trade: {trade}, Orders: {executed_orders_res}"
             )
-            return False
+            return trade
 
     def get_valid_entry_orders_details(
         self,
