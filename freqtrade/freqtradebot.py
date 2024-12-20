@@ -5,7 +5,6 @@ Freqtrade is the main module of this bot. It contains the class Freqtrade()
 import logging
 import traceback
 from copy import deepcopy
-from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 from math import isclose
 from threading import Lock
@@ -1426,11 +1425,11 @@ class FreqtradeBot(LoggingMixin):
                         exo, "average", "price", exo["price"]
                     )
 
-                # TODO: fee must correspond to the sum fees of all filled orders
+                # TODO: fee must be handled correctly
                 # Result usage and Trade update
                 # Fee is applied twice because we make a LIMIT_BUY and LIMIT_SELL
-                fee = self.exchange.get_fee(symbol=exo.pair, taker_or_maker="maker")
-                base_currency = self.exchange.get_pair_base_currency(trade.pair)
+                # fee = self.exchange.get_fee(symbol=exo.pair, taker_or_maker="maker")
+                # base_currency = self.exchange.get_pair_base_currency(trade.pair)
                 open_date = datetime.now(timezone.utc)
 
                 funding_fees = self.exchange.get_funding_fees(
