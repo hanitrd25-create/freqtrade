@@ -250,9 +250,7 @@ class FreqtradeBot(LoggingMixin):
         """
         Queries the persistence layer for open trades and handles them,
         otherwise a new trade is created.
-        :return: True if one or more trades has been created or closed, False otherwise
         """
-
         # Check whether markets have to be reloaded and reload them when it's needed
         self.exchange.reload_markets()
 
@@ -277,25 +275,28 @@ class FreqtradeBot(LoggingMixin):
             self.strategy.analyze(self.active_pair_whitelist)
 
         with self._exit_lock:
-            # Check for exchange cancellations, timeouts and user requested replace
+            # Check for exchange cancellations, timeouts, and user requested replace
             self.manage_open_orders()
 
-        # Protect from collisions with force_exit.
-        # Without this, freqtrade may try to recreate stoploss_on_exchange orders
-        # while exiting is in process, since telegram messages arrive in an different thread.
         with self._exit_lock:
             trades = Trade.get_open_trades()
-            # First process current opened trades (positions)
-            self.exit_positions(trades)
+            # First process current open trades (positions)
+            closed_trades = self.exit_positions(trades)
 
-        # Check if we need to adjust our current positions before attempting to enter new trades.
+        # Attempt to open new trades for pairs that were closed
+        for trade in closed_trades:
+            if self.get_free_open_trades():
+                self.create_trade(trade.pair)
+
+        # Check if we need to adjust our current positions before attempting to enter new trades
         if self.strategy.position_adjustment_enable:
             with self._exit_lock:
                 self.process_open_trade_positions()
 
-        # Then looking for entry opportunities
+        # Then look for new entry opportunities
         if self.get_free_open_trades():
             self.enter_positions()
+
         self._schedule.run_pending()
         Trade.commit()
         self.rpc.process_msg_queue(self.dataprovider._msg_queue)
@@ -1273,9 +1274,10 @@ class FreqtradeBot(LoggingMixin):
 
     def exit_positions(self, trades: list[Trade]) -> int:
         """
-        Tries to execute exit orders for open trades (positions)
+        Tries to execute exit orders for open trades (positions).
+        Returns a list of trades that were closed.
         """
-        trades_closed = 0
+        trades_closed = []
         for trade in trades:
             if (
                 not trade.has_open_orders
@@ -1295,8 +1297,7 @@ class FreqtradeBot(LoggingMixin):
                     if self.strategy.order_types.get(
                         "stoploss_on_exchange"
                     ) and self.handle_stoploss_on_exchange(trade):
-                        trades_closed += 1
-                        Trade.commit()
+                        trades_closed.append(trade)
                         continue
 
                 except InvalidOrderException as exception:
@@ -1305,7 +1306,7 @@ class FreqtradeBot(LoggingMixin):
                     )
                 # Check if we can sell our current pair
                 if not trade.has_open_orders and trade.is_open and self.handle_trade(trade):
-                    trades_closed += 1
+                    trades_closed.append(trade)
 
             except DependencyException as exception:
                 logger.warning(f"Unable to exit trade {trade.pair}: {exception}")
