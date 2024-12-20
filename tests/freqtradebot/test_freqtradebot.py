@@ -2995,9 +2995,7 @@ def test_execute_trade_exit_custom_orders(
     # Mock the execute_orders method to return properly formatted order objects
     def mock_execute_orders(trade, orders_to_validate):
         # First validate orders
-        validated_orders = freqtrade.get_validated_orders(
-            trade, orders_to_validate
-        )
+        validated_orders = freqtrade.get_validated_orders(trade, orders_to_validate)
 
         # Then filter out existing orders
         entry_otc, exit_otc = freqtrade.filterOrdersToCreate(trade, validated_orders)
@@ -3012,7 +3010,7 @@ def test_execute_trade_exit_custom_orders(
                 ft_amount=order.amount,
                 ft_price=order.price,
                 price=order.price,
-                status="closed"
+                status="closed",
             )
             trade.orders.append(executed_order)
             executed_orders.append(executed_order)
@@ -3043,8 +3041,6 @@ def test_execute_trade_exit_custom_orders(
     assert log_has_re(f"Skipping {order_side} order.*'exit_tag_1' for ETH/USDT", caplog)
     assert log_has_re(f"Skipping {order_side} order.*'exit_tag_2' for ETH/USDT", caplog)
     assert log_has_re(f"Skipping {order_side} order.*'exit_tag_3' for ETH/USDT", caplog)
-
-
 
 
 @pytest.mark.parametrize("is_short", [False, True])
@@ -5008,6 +5004,7 @@ def test_reupdate_enter_order_fees(mocker, default_conf_usdt, fee, caplog, is_sh
     freqtrade.handle_insufficient_funds(trade)
     # assert log_has_re(r"Trying to reupdate buy fees for .*", caplog)
     assert mock_uts.call_count == 0
+
 
 @pytest.mark.usefixtures("init_persistence")
 @pytest.mark.parametrize("is_short", [False, True])

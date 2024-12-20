@@ -45,6 +45,7 @@ from freqtrade.exchange import (
     timeframe_to_seconds,
 )
 from freqtrade.exchange.exchange_types import CcxtOrder
+from freqtrade.ft_types.order_to_type import OrderToCreate, OrderToValidate
 from freqtrade.leverage.liquidation_price import update_liquidation_prices
 from freqtrade.misc import safe_value_fallback, safe_value_fallback2
 from freqtrade.mixins import LoggingMixin
@@ -71,34 +72,6 @@ from freqtrade.wallets import Wallets
 
 
 logger = logging.getLogger(__name__)
-
-
-# Once validated move that in a dataclass folder?
-@dataclass
-class OrderToCreate:
-    pair: str
-    type: Literal["limit", "market"]
-    side: Literal["buy", "sell"]
-    price: float
-    amount: float
-    stake_amount: float
-    leverage: float
-    order_tag: str
-    reduce_only: bool
-    time_in_force: Literal["GTC", "FOK", "IOC"]
-    trade_side: LongShort
-
-
-@dataclass
-class OrderToValidate:
-    type: Literal["limit", "market"]
-    side: Literal["buy", "sell"]
-    price: float
-    amount: float
-    action_side: Literal["entry", "exit"]
-    time_in_force: Literal["GTC", "FOK", "IOC"]
-    order_tag: str
-    trade_side: LongShort
 
 
 class FreqtradeBot(LoggingMixin):
@@ -1285,7 +1258,7 @@ class FreqtradeBot(LoggingMixin):
                     order_tag=order_tag or "",  # Ensure a valid string is passed
                     reduce_only=reduce_only,
                     time_in_force=time_in_force or "GTC",  # Ensure a valid string is passed
-                    trade_side=trade_side
+                    trade_side=trade_side,
                 )
                 orders.append(order_to_create)
 
@@ -1301,7 +1274,7 @@ class FreqtradeBot(LoggingMixin):
                 order_tag=exit_tag or "",  # Ensure a valid string is passed
                 reduce_only=reduce_only,
                 time_in_force=action_side_tif or "GTC",  # Ensure a valid string is passed
-                trade_side=trade_side
+                trade_side=trade_side,
             )
             orders.append(order_to_create)
 
@@ -1324,9 +1297,7 @@ class FreqtradeBot(LoggingMixin):
                 )
                 needs_price = self.exchange._order_needs_price(otv.side, otv.type)
                 rate_for_order = (
-                    self.exchange.price_to_precision(trade.pair, otv.price)
-                    if needs_price
-                    else None
+                    self.exchange.price_to_precision(trade.pair, otv.price) if needs_price else None
                 )
 
                 req_stake_amount = (rate_for_order * amount) / trade.leverage
@@ -1343,7 +1314,7 @@ class FreqtradeBot(LoggingMixin):
                     order_tag=otv.order_tag,  # Ensure a valid string is passed
                     reduce_only=reduce_only,
                     time_in_force=otv.time_in_force,  # Ensure a valid string is passed
-                    trade_side=trade_side
+                    trade_side=trade_side,
                 )
                 orders.append(order_to_create)
 
@@ -1563,7 +1534,7 @@ class FreqtradeBot(LoggingMixin):
                     order_tag=action_tag or "",  # Ensure a valid string is passed
                     reduce_only=reduce_only,
                     time_in_force=time_in_force or "GTC",  # Ensure a valid string is passed
-                    trade_side=trade_side
+                    trade_side=trade_side,
                 )
                 orders.append(order_to_create)
 
@@ -1595,7 +1566,7 @@ class FreqtradeBot(LoggingMixin):
                 order_tag=action_tag or "",  # Ensure a valid string is passed
                 reduce_only=reduce_only,
                 time_in_force=action_side_tif or "GTC",  # Ensure a valid string is passed
-                trade_side=trade_side
+                trade_side=trade_side,
             )
             orders.append(order_to_create)
 
