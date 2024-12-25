@@ -83,10 +83,10 @@ def test_bitget_fetch_orders(default_conf, mocker, limit_order):
     exchange = get_patched_exchange(mocker, default_conf, api_mock, exchange="bitget")
     res = exchange.fetch_orders("mocked", start_time)
     # Bitget will call the endpoint 3 times, as it has a limit of 7 days per call
-    assert api_mock.fetch_orders.call_count == 3
+    assert api_mock.fetch_orders.call_count == 1
     assert api_mock.fetch_open_orders.call_count == 0
     assert api_mock.fetch_closed_orders.call_count == 0
-    assert len(res) == 2 * 3
+    assert len(res) == 2
 
 
 def test_bitget_fetch_order(default_conf_usdt, mocker):

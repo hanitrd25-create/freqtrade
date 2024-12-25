@@ -1,14 +1,14 @@
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import ccxt
 
 from freqtrade.constants import BuySell
 from freqtrade.enums import CandleType, MarginMode, PriceType, TradingMode
-from freqtrade.exceptions import ExchangeError
+from freqtrade.exceptions import DDosProtection, ExchangeError, OperationalException, TemporaryError
 from freqtrade.exchange import Exchange
+from freqtrade.exchange.common import retrier
 from freqtrade.exchange.exchange_types import FtHas, OHLCVResponse
-from freqtrade.util.datetime_helpers import dt_now, dt_ts
 
 
 logger = logging.getLogger(__name__)
@@ -48,6 +48,32 @@ class Bitget(Exchange):
     _supported_trading_mode_margin_pairs: list[tuple[TradingMode, MarginMode]] = [
         (TradingMode.FUTURES, MarginMode.ISOLATED)
     ]
+
+    @property
+    def _ccxt_config(self) -> dict:
+        config = {}
+        if self.trading_mode == TradingMode.FUTURES:
+            config.update({"options": {"defaultType": "swap"}})
+        config.update(super()._ccxt_config)
+        return config
+
+    @retrier
+    def additional_exchange_init(self) -> None:
+        try:
+            if not self._config["dry_run"]:
+                if self.trading_mode == TradingMode.FUTURES:
+                    # Set position mode to one-way (hedged = False)
+                    self._api.set_position_mode(False, None, {"productType": "USDT-FUTURES"})
+                    logger.info("Bitget: Position mode set to one-way.")
+
+        except ccxt.DDoSProtection as e:
+            raise DDosProtection(e) from e
+        except (ccxt.OperationFailed, ccxt.ExchangeError) as e:
+            raise TemporaryError(
+                f"Error in additional_exchange_init due to {e.__class__.__name__}. Message: {e}"
+            ) from e
+        except ccxt.BaseError as e:
+            raise OperationalException(e) from e
 
     def _get_params(
         self,
@@ -193,21 +219,3 @@ class Bitget(Exchange):
 
         pair_tiers = self._leverage_tiers[pair]
         return pair_tiers[-1]["maxNotional"] / leverage
-
-    def fetch_orders(self, pair: str, since: datetime, params: dict | None = None) -> list[dict]:
-        orders = []
-
-        while since < dt_now():
-            until = since + timedelta(days=7, minutes=-1)
-            orders += super().fetch_orders(pair, since, params={"until": dt_ts(until)})
-            since = until
-
-        return orders
-
-    def fetch_order(self, order_id: str, pair: str, params: dict | None = None) -> dict:
-        order = super().fetch_order(order_id, pair, params)
-        if not hasattr(order, "status"):
-            return order
-        if order["status"] == "closed" and order.get("average") is None and order.get("price"):
-            order["average"] = order["price"]
-        return order

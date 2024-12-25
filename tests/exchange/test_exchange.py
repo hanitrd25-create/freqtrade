@@ -1739,10 +1739,6 @@ def test_fetch_orders(default_conf, mocker, exchange_name, limit_order):
     expected = 1
     if exchange_name == "bybit":
         expected = 3
-
-    if exchange_name == "bitget":
-        expected = 3
-
     exchange = get_patched_exchange(mocker, default_conf, api_mock, exchange=exchange_name)
     # Not available in dry-run
     assert exchange.fetch_orders("mocked", start_time) == []
@@ -4955,7 +4951,7 @@ def test_validate_trading_mode_and_margin_mode(
         ("kraken", "futures", {"options": {"defaultType": "swap"}}),
         ("kucoin", "futures", {"options": {"defaultType": "swap"}}),
         ("okx", "futures", {"options": {"defaultType": "swap"}}),
-        ("bitget", "spot", {"options": {"defaultType": "spot"}}),
+        ("bitget", "spot", {}),
         ("bitget", "futures", {"options": {"defaultType": "swap"}}),
     ],
 )
