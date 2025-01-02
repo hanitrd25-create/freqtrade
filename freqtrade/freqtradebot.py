@@ -1177,6 +1177,7 @@ class FreqtradeBot(LoggingMixin):
                 reduceOnly=False,
                 time_in_force=o.time_in_force,
                 leverage=o.leverage,
+                trigger_price=o.trigger_price
             )
 
             orders_responses.append(order_res)
