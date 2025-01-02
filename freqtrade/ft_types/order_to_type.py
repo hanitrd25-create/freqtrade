@@ -11,6 +11,7 @@ class OrderToCreate:
     type: Literal["limit", "market"]
     side: Literal["buy", "sell"]
     price: float
+    trigger_price: float | None
     amount: float
     stake_amount: float
     leverage: float
@@ -25,6 +26,7 @@ class OrderToValidate:
     type: Literal["limit", "market"]
     side: Literal["buy", "sell"]
     price: float
+    trigger_price: float | None
     amount: float
     action_side: Literal["entry", "exit"]
     time_in_force: Literal["GTC", "FOK", "IOC"]
