@@ -96,6 +96,7 @@ class Order(ModelBase):
     ft_amount: Mapped[float] = mapped_column(Float(), nullable=False)
     ft_price: Mapped[float] = mapped_column(Float(), nullable=False)
     ft_trigger_price: Mapped[float] = mapped_column(Float(), nullable=True)
+    ft_trigger_state: Mapped[bool] = mapped_column(nullable=False, default=False)
     ft_cancel_reason: Mapped[str] = mapped_column(String(CUSTOM_TAG_MAX_LENGTH), nullable=True)
 
     order_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
