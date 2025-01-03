@@ -266,14 +266,17 @@ class IFreqaiModel(ABC):
             model = self.train(dataframe_train, pair, dk)
             self.tb_logger.close()
             return model
-        except Exception as msg:
-            logger.warning(
-                f"Training {pair} raised exception {msg.__class__.__name__}. "
-                f"from {tr_backtest.start_fmt} to {tr_backtest.stop_fmt}."
-                f"Message: {msg}, skipping.",
-                exc_info=True,
-            )
-            return None
+except Exception as msg:
+    if self.freqai_info.get("warn_exceptions_on_backtest_only", False):
+        logger.warning(
+            f"Training {pair} raised exception {msg.__class__.__name__}. "
+            f"from {tr_backtest.start_fmt} to {tr_backtest.stop_fmt}."
+            f"Message: {msg}, skipping.",
+            exc_info=True,
+        )
+    else:
+        raise
+    return None
 
     def start_backtesting(
         self, dataframe: DataFrame, metadata: dict, dk: FreqaiDataKitchen, strategy: IStrategy
