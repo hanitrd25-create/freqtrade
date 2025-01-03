@@ -97,6 +97,7 @@ class Order(ModelBase):
     ft_price: Mapped[float] = mapped_column(Float(), nullable=False)
     ft_trigger_price: Mapped[float] = mapped_column(Float(), nullable=True)
     ft_trigger_state: Mapped[bool] = mapped_column(nullable=False, default=False)
+    ft_triggered_date: Mapped[datetime | None] = mapped_column(nullable=True)
     ft_cancel_reason: Mapped[str] = mapped_column(String(CUSTOM_TAG_MAX_LENGTH), nullable=True)
 
     order_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
@@ -315,6 +316,10 @@ class Order(ModelBase):
                 trade.initial_stop_loss_pct = None
                 trade.is_stop_loss_trailing = False
             trade.adjust_stop_loss(trade.open_rate, trade.stop_loss_pct)
+
+    def trigger_bt_order(self, trigger_date: datetime):
+        self.ft_triggered_date = trigger_date
+        self.ft_trigger_state = True
 
     @staticmethod
     def update_orders(orders: list["Order"], order: CcxtOrder):

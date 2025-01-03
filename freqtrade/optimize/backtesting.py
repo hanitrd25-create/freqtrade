@@ -752,7 +752,7 @@ class Backtesting:
 
         return trade
 
-    def _get_order_filled(self, rate: float, row: tuple) -> bool:
+    def _get_rate_in_candle(self, rate: float, row: tuple) -> bool:
         """Rate is within candle, therefore filled"""
         return row[LOW_IDX] <= rate <= row[HIGH_IDX]
 
@@ -774,31 +774,37 @@ class Backtesting:
         Check if an order is open and if it should've filled.
         :return:  True if the order filled.
         """
-        if order and self._get_order_filled(order.ft_price, row):
-            order.close_bt_order(current_date, trade)
-            self._run_funding_fees(trade, current_date, force=True)
-            strategy_safe_wrapper(self.strategy.order_filled, default_retval=None)(
-                pair=trade.pair,
-                trade=trade,  # type: ignore[arg-type]
-                order=order,
-                current_time=current_date,
-            )
+        if order:
+            if order.ft_trigger_price and not order.trigger_state:
+                if self._get_rate_in_candle(order.ft_trigger_price, row):
+                    # We should update order trigger_state to True
+                    order.trigger_bt_order(current_date)
 
-            if self.margin_mode == MarginMode.CROSS or not (
-                order.ft_order_side == trade.exit_side and order.safe_amount == trade.amount
-            ):
-                # trade is still open or we are in cross margin mode and
-                # must update all liquidation prices
-                update_liquidation_prices(
-                    trade,
-                    exchange=self.exchange,
-                    wallets=self.wallets,
-                    stake_currency=self.config["stake_currency"],
-                    dry_run=self.config["dry_run"],
+            if self._get_rate_in_candle(order.ft_price, row):
+                order.close_bt_order(current_date, trade)
+                self._run_funding_fees(trade, current_date, force=True)
+                strategy_safe_wrapper(self.strategy.order_filled, default_retval=None)(
+                    pair=trade.pair,
+                    trade=trade,  # type: ignore[arg-type]
+                    order=order,
+                    current_time=current_date,
                 )
-            if not (order.ft_order_side == trade.exit_side and order.safe_amount == trade.amount):
-                self._call_adjust_stop(current_date, trade, order.ft_price)
-            return True
+
+                if self.margin_mode == MarginMode.CROSS or not (
+                    order.ft_order_side == trade.exit_side and order.safe_amount == trade.amount
+                ):
+                    # trade is still open or we are in cross margin mode and
+                    # must update all liquidation prices
+                    update_liquidation_prices(
+                        trade,
+                        exchange=self.exchange,
+                        wallets=self.wallets,
+                        stake_currency=self.config["stake_currency"],
+                        dry_run=self.config["dry_run"],
+                    )
+                if not (order.ft_order_side == trade.exit_side and order.safe_amount == trade.amount):
+                    self._call_adjust_stop(current_date, trade, order.ft_price)
+                return True
         return False
 
     def _process_exit_order(
