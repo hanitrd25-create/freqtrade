@@ -136,6 +136,7 @@ class Kraken(Exchange):
         leverage: float,
         reduceOnly: bool,
         time_in_force: str = "GTC",
+        trigger_price: float = None,
     ) -> dict:
         params = super()._get_params(
             side=side,
@@ -143,6 +144,7 @@ class Kraken(Exchange):
             leverage=leverage,
             reduceOnly=reduceOnly,
             time_in_force=time_in_force,
+            trigger_price=trigger_price,
         )
         if leverage > 1.0:
             params["leverage"] = round(leverage)

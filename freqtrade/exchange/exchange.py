@@ -1255,7 +1255,7 @@ class Exchange:
         leverage: float,
         reduceOnly: bool = False,
         time_in_force: str = "GTC",
-        trigger_price: float | None,
+        trigger_price: float = None,
     ) -> CcxtOrder:
         if self._config["dry_run"]:
             dry_order = self.create_dry_run_order(

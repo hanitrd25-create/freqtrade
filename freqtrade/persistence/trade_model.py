@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from math import isclose
 from typing import Any, ClassVar, Optional, cast
+from freqtrade.ft_types.order_to_type import OrderToCreate
 
 from sqlalchemy import (
     Enum,
@@ -94,6 +95,7 @@ class Order(ModelBase):
     ft_is_open: Mapped[bool] = mapped_column(nullable=False, default=True, index=True)
     ft_amount: Mapped[float] = mapped_column(Float(), nullable=False)
     ft_price: Mapped[float] = mapped_column(Float(), nullable=False)
+    ft_trigger_price: Mapped[float] = mapped_column(Float(), nullable=True)
     ft_cancel_reason: Mapped[str] = mapped_column(String(CUSTOM_TAG_MAX_LENGTH), nullable=True)
 
     order_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
@@ -338,17 +340,26 @@ class Order(ModelBase):
         side: str,
         amount: float | None = None,
         price: float | None = None,
+        test:  float | None = None,
+        requested_order: OrderToCreate | None = None
     ) -> Self:
         """
         Parse an order from a ccxt object and return a new order Object.
         Optional support for overriding amount and price is only used for test simplification.
         """
+        trigger_price = (
+            requested_order.trigger_price
+            if requested_order and requested_order.trigger_price is not None
+            else None
+        )
+
         o = cls(
             order_id=str(order["id"]),
             ft_order_side=side,
             ft_pair=pair,
             ft_amount=amount or order.get("amount", None) or 0.0,
             ft_price=price or order.get("price", None),
+            ft_trigger_price=trigger_price
         )
 
         o.update_from_ccxt_object(order)

@@ -1359,6 +1359,7 @@ def test_buy_prod(default_conf, mocker, exchange_name):
         rate=200,
         leverage=1.0,
         time_in_force=time_in_force,
+        trigger_price=None,
     )
 
     assert "id" in order
@@ -1383,6 +1384,7 @@ def test_buy_prod(default_conf, mocker, exchange_name):
         rate=200,
         leverage=1.0,
         time_in_force=time_in_force,
+        trigger_price=None,
     )
     assert api_mock.create_order.call_args[0][0] == "ETH/BTC"
     assert api_mock.create_order.call_args[0][1] == order_type
@@ -1402,6 +1404,7 @@ def test_buy_prod(default_conf, mocker, exchange_name):
             rate=200,
             leverage=1.0,
             time_in_force=time_in_force,
+            trigger_price=None,
         )
 
     with pytest.raises(DependencyException):
@@ -1415,6 +1418,7 @@ def test_buy_prod(default_conf, mocker, exchange_name):
             rate=200,
             leverage=1.0,
             time_in_force=time_in_force,
+            trigger_price=None,
         )
 
     with pytest.raises(DependencyException):
@@ -1428,6 +1432,7 @@ def test_buy_prod(default_conf, mocker, exchange_name):
             rate=200,
             leverage=1.0,
             time_in_force=time_in_force,
+            trigger_price=None,
         )
 
     with pytest.raises(TemporaryError):
@@ -1441,6 +1446,7 @@ def test_buy_prod(default_conf, mocker, exchange_name):
             rate=200,
             leverage=1.0,
             time_in_force=time_in_force,
+            trigger_price=None,
         )
 
     with pytest.raises(OperationalException):
@@ -1454,6 +1460,7 @@ def test_buy_prod(default_conf, mocker, exchange_name):
             rate=200,
             leverage=1.0,
             time_in_force=time_in_force,
+            trigger_price=None,
         )
 
 
@@ -1481,6 +1488,7 @@ def test_buy_considers_time_in_force(default_conf, mocker, exchange_name):
         rate=200,
         leverage=1.0,
         time_in_force=time_in_force,
+        trigger_price=None,
     )
 
     assert "id" in order
@@ -1506,6 +1514,7 @@ def test_buy_considers_time_in_force(default_conf, mocker, exchange_name):
         rate=200,
         leverage=1.0,
         time_in_force=time_in_force,
+        trigger_price=None,
     )
 
     assert "id" in order
@@ -1638,6 +1647,7 @@ def test_sell_considers_time_in_force(default_conf, mocker, exchange_name):
         rate=200,
         leverage=1.0,
         time_in_force=time_in_force,
+        trigger_price=None,
     )
 
     assert "id" in order
@@ -1661,6 +1671,7 @@ def test_sell_considers_time_in_force(default_conf, mocker, exchange_name):
         rate=200,
         leverage=1.0,
         time_in_force=time_in_force,
+        trigger_price=None,
     )
 
     assert "id" in order

@@ -1004,7 +1004,7 @@ class FreqtradeBot(LoggingMixin):
 
         # Order execution
         executed_entry_orders_res = self.execute_orders_on_exchange(entry_orders)
-        executed_order = executed_entry_orders_res[0]
+        executed_order = executed_entry_orders_res[0][1]
 
         # Result processing
         order_obj = Order.parse_from_ccxt_object(
@@ -1013,6 +1013,7 @@ class FreqtradeBot(LoggingMixin):
             requested_order.side,
             requested_order.amount,
             requested_order.price,
+            requested_order
         )
         order_obj.ft_order_tag = requested_order.order_tag
         order_id = executed_order["id"]
@@ -1165,8 +1166,7 @@ class FreqtradeBot(LoggingMixin):
         """
         # Prepare each order parameters
         # Execute orders
-
-        orders_responses = []
+        orders_summary = []
         for o in orders:
             order_res = self.exchange.create_order(
                 pair=o.pair,
@@ -1180,9 +1180,9 @@ class FreqtradeBot(LoggingMixin):
                 trigger_price=o.trigger_price
             )
 
-            orders_responses.append(order_res)
+            orders_summary.append((o, order_res))
 
-        return orders_responses
+        return orders_summary
 
     def get_valid_exit_orders_details(
         self,
@@ -1252,6 +1252,7 @@ class FreqtradeBot(LoggingMixin):
                     type=order_type or "limit",  # type: ignore
                     side=co["side"],
                     price=co["price"],
+                    trigger_price=co["trigger_price"] or None,
                     amount=co["amount"],
                     stake_amount=req_stake_amount,
                     leverage=trade.leverage,
@@ -1268,6 +1269,7 @@ class FreqtradeBot(LoggingMixin):
                 type=action_side_order_type or "limit",  # Ensure type is either 'limit' or 'market'
                 side=trade.exit_side,
                 price=limit_price_requested,
+                trigger_price=None,
                 amount=amount,
                 stake_amount=amount * price / trade.leverage,  # Ensure a valid float is calculated
                 leverage=trade.leverage,
@@ -1365,15 +1367,18 @@ class FreqtradeBot(LoggingMixin):
 
         return entry_otc, exit_otc
 
-    def handle_orders_results(self, trade: Trade, executed_orders_res: list[Any]) -> list[Any]:
+    def handle_orders_results(
+        self, trade: Trade, executed_orders_res: list[(Any, Any)]
+    ) -> list[Any]:
         try:
-            for exo in executed_orders_res:
+            for sdo, exo in executed_orders_res:
                 order_obj = Order.parse_from_ccxt_object(
                     exo,
                     trade.pair,
                     exo.side,
                     exo.amount,
                     exo.price,
+                    sdo
                 )
                 order_obj.ft_order_tag = exo.order_tag
 
@@ -1528,6 +1533,7 @@ class FreqtradeBot(LoggingMixin):
                     type=order_type or "limit",  # type: ignore
                     side=co["side"],
                     price=co["price"],
+                    trigger_price=co["trigger_price"] or None,
                     amount=co["amount"],
                     stake_amount=req_stake_amount,
                     leverage=leverage,
@@ -1560,6 +1566,7 @@ class FreqtradeBot(LoggingMixin):
                 type=action_side_order_type or "limit",  # Ensure type is either 'limit' or 'market'
                 side=side,
                 price=limit_price_requested,
+                trigger_price=None,
                 amount=amount,
                 stake_amount=stake_amount,
                 leverage=leverage,
@@ -2510,7 +2517,8 @@ class FreqtradeBot(LoggingMixin):
         try:
             # Order execution
             executed_exit_orders_res = self.execute_orders_on_exchange(exit_orders)
-            executed_order = executed_exit_orders_res[0]
+            requested_order = executed_exit_orders_res[0][0]
+            executed_order = executed_exit_orders_res[0][1]
 
         except InsufficientFundsError as e:
             logger.warning(f"Unable to place order {e}.")
@@ -2519,7 +2527,7 @@ class FreqtradeBot(LoggingMixin):
             return False
 
         order_obj = Order.parse_from_ccxt_object(
-            executed_order, trade.pair, trade.exit_side, amount, limit
+            executed_order, trade.pair, trade.exit_side, amount, limit, requested_order
         )
         order_obj.ft_order_tag = req_exit_order.order_tag
         trade.orders.append(order_obj)

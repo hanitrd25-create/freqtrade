@@ -128,6 +128,7 @@ class Bybit(Exchange):
         leverage: float,
         reduceOnly: bool,
         time_in_force: str = "GTC",
+        trigger_price: float = None,
     ) -> dict:
         params = super()._get_params(
             side=side,
@@ -135,6 +136,7 @@ class Bybit(Exchange):
             leverage=leverage,
             reduceOnly=reduceOnly,
             time_in_force=time_in_force,
+            trigger_price=trigger_price,
         )
         if self.trading_mode == TradingMode.FUTURES and self.margin_mode:
             params["position_idx"] = 0

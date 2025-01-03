@@ -95,6 +95,7 @@ class Gate(Exchange):
         leverage: float,
         reduceOnly: bool,
         time_in_force: str = "GTC",
+        trigger_price: float = None,
     ) -> dict:
         params = super()._get_params(
             side=side,
@@ -102,6 +103,7 @@ class Gate(Exchange):
             leverage=leverage,
             reduceOnly=reduceOnly,
             time_in_force=time_in_force,
+            trigger_price=trigger_price,
         )
         if ordertype == "market" and self.trading_mode == TradingMode.FUTURES:
             params["type"] = "market"
