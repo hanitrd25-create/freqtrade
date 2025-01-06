@@ -33,7 +33,6 @@ TARGET_TRADE_AMOUNT variable sets the minimum number of trades required to avoid
 import numpy as np
 from pandas import DataFrame
 
-from freqtrade.constants import Config
 from freqtrade.data.metrics import calculate_expectancy, calculate_max_drawdown
 from freqtrade.optimize.hyperopt import IHyperOptLoss
 
@@ -57,7 +56,7 @@ class MultiMetricHyperOptLoss(IHyperOptLoss):
     def hyperopt_loss_function(
         results: DataFrame,
         trade_count: int,
-        config: Config,
+        starting_balance: float,
         **kwargs,
     ) -> float:
         total_profit = results["profit_abs"].sum()
@@ -69,11 +68,8 @@ class MultiMetricHyperOptLoss(IHyperOptLoss):
         log_profit_factor = np.log(profit_factor + PF_CONST)
 
         # Calculate expectancy
-        expectancy, expectancy_ratio = calculate_expectancy(results)
-        if expectancy_ratio > 10:
-            log_expectancy_ratio = np.log(1.01)
-        else:
-            log_expectancy_ratio = np.log(expectancy_ratio + EXPECTANCY_CONST)
+        _, expectancy_ratio = calculate_expectancy(results)
+        log_expectancy_ratio = np.log(min(10, expectancy_ratio) + EXPECTANCY_CONST)
 
         # Calculate winrate
         winning_trades = results.loc[results["profit_abs"] > 0]
@@ -83,7 +79,7 @@ class MultiMetricHyperOptLoss(IHyperOptLoss):
         # Calculate drawdown
         try:
             drawdown = calculate_max_drawdown(
-                results, starting_balance=config["dry_run_wallet"], value_col="profit_abs"
+                results, starting_balance=starting_balance, value_col="profit_abs"
             )
             relative_account_drawdown = drawdown.relative_account_drawdown
         except ValueError:

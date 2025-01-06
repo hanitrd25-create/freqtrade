@@ -1697,6 +1697,7 @@ def test_get_balances_prod(default_conf, mocker, exchange_name):
     api_mock.fetch_balance = MagicMock(
         return_value={"1ST": balance_item, "2ND": balance_item, "3RD": balance_item}
     )
+    api_mock.commonCurrencies = {}
     default_conf["dry_run"] = False
     exchange = get_patched_exchange(mocker, default_conf, api_mock, exchange=exchange_name)
     assert len(exchange.get_balances()) == 3
@@ -2018,6 +2019,54 @@ def test_get_tickers(default_conf, mocker, exchange_name, caplog):
 
 
 @pytest.mark.parametrize("exchange_name", EXCHANGES)
+def test_get_conversion_rate(default_conf_usdt, mocker, exchange_name):
+    api_mock = MagicMock()
+    tick = {
+        "ETH/USDT": {
+            "last": 42,
+        },
+        "BCH/USDT": {
+            "last": 41,
+        },
+        "ETH/BTC": {
+            "last": 250,
+        },
+    }
+    tick2 = {
+        "ADA/USDT:USDT": {
+            "last": 2.5,
+        }
+    }
+    mocker.patch(f"{EXMS}.exchange_has", return_value=True)
+    api_mock.fetch_tickers = MagicMock(side_effect=[tick, tick2])
+    api_mock.fetch_bids_asks = MagicMock(return_value={})
+    default_conf_usdt["trading_mode"] = "futures"
+
+    exchange = get_patched_exchange(mocker, default_conf_usdt, api_mock, exchange=exchange_name)
+    # retrieve original ticker
+    assert exchange.get_conversion_rate("USDT", "USDT") == 1
+    assert api_mock.fetch_tickers.call_count == 0
+    assert exchange.get_conversion_rate("ETH", "USDT") == 42
+    assert exchange.get_conversion_rate("ETH", "USDC") is None
+    assert exchange.get_conversion_rate("ETH", "BTC") == 250
+    assert exchange.get_conversion_rate("BTC", "ETH") == 0.004
+
+    assert api_mock.fetch_tickers.call_count == 1
+    api_mock.fetch_tickers.reset_mock()
+
+    assert exchange.get_conversion_rate("ADA", "USDT") == 2.5
+    # Only the call to the "others" market
+    assert api_mock.fetch_tickers.call_count == 1
+
+    if exchange_name == "binance":
+        # Special binance case of BNFCR matching USDT.
+        assert exchange.get_conversion_rate("BNFCR", "USDT") is None
+        assert exchange.get_conversion_rate("BNFCR", "USDC") == 1
+        assert exchange.get_conversion_rate("USDT", "BNFCR") is None
+        assert exchange.get_conversion_rate("USDC", "BNFCR") == 1
+
+
+@pytest.mark.parametrize("exchange_name", EXCHANGES)
 def test_fetch_ticker(default_conf, mocker, exchange_name):
     api_mock = MagicMock()
     tick = {
@@ -2083,7 +2132,7 @@ def test___now_is_time_to_refresh(default_conf, mocker, exchange_name, time_mach
     # not refreshed yet
     assert exchange._now_is_time_to_refresh(pair, "5m", candle_type) is True
 
-    last_closed_candle = (start_dt - timedelta(minutes=5)).timestamp()
+    last_closed_candle = dt_ts(start_dt - timedelta(minutes=5))
     exchange._pairs_last_refresh_time[(pair, "5m", candle_type)] = last_closed_candle
 
     # next candle not closed yet
@@ -2486,7 +2535,7 @@ def test_refresh_latest_ohlcv_cache(mocker, default_conf, candle_type, time_mach
     assert len(res[pair1]) == 99
     assert len(res[pair2]) == 99
     assert exchange._klines
-    assert exchange._pairs_last_refresh_time[pair1] == ohlcv[-2][0] // 1000
+    assert exchange._pairs_last_refresh_time[pair1] == ohlcv[-2][0]
     exchange._api_async.fetch_ohlcv.reset_mock()
 
     # Returned from cache
@@ -2495,7 +2544,7 @@ def test_refresh_latest_ohlcv_cache(mocker, default_conf, candle_type, time_mach
     assert len(res) == 2
     assert len(res[pair1]) == 99
     assert len(res[pair2]) == 99
-    assert exchange._pairs_last_refresh_time[pair1] == ohlcv[-2][0] // 1000
+    assert exchange._pairs_last_refresh_time[pair1] == ohlcv[-2][0]
 
     # Move time 1 candle further but result didn't change yet
     time_machine.move_to(start + timedelta(hours=101))
@@ -2505,7 +2554,7 @@ def test_refresh_latest_ohlcv_cache(mocker, default_conf, candle_type, time_mach
     assert len(res[pair1]) == 99
     assert len(res[pair2]) == 99
     assert res[pair2].at[0, "open"]
-    assert exchange._pairs_last_refresh_time[pair1] == ohlcv[-2][0] // 1000
+    assert exchange._pairs_last_refresh_time[pair1] == ohlcv[-2][0]
     refresh_pior = exchange._pairs_last_refresh_time[pair1]
 
     # New candle on exchange - return 100 candles - but skip one candle so we actually get 2 candles
@@ -2523,8 +2572,8 @@ def test_refresh_latest_ohlcv_cache(mocker, default_conf, candle_type, time_mach
     assert res[pair2].at[0, "open"]
     assert refresh_pior != exchange._pairs_last_refresh_time[pair1]
 
-    assert exchange._pairs_last_refresh_time[pair1] == ohlcv[-2][0] // 1000
-    assert exchange._pairs_last_refresh_time[pair2] == ohlcv[-2][0] // 1000
+    assert exchange._pairs_last_refresh_time[pair1] == ohlcv[-2][0]
+    assert exchange._pairs_last_refresh_time[pair2] == ohlcv[-2][0]
     exchange._api_async.fetch_ohlcv.reset_mock()
 
     # Retry same call - from cache
@@ -4090,10 +4139,16 @@ def test_get_valid_pair_combination(default_conf, mocker, markets):
     )
     ex = Exchange(default_conf)
 
-    assert ex.get_valid_pair_combination("ETH", "BTC") == "ETH/BTC"
-    assert ex.get_valid_pair_combination("BTC", "ETH") == "ETH/BTC"
+    assert next(ex.get_valid_pair_combination("ETH", "BTC")) == "ETH/BTC"
+    assert next(ex.get_valid_pair_combination("BTC", "ETH")) == "ETH/BTC"
+    multicombs = list(ex.get_valid_pair_combination("ETH", "USDT"))
+    assert len(multicombs) == 2
+    assert "ETH/USDT" in multicombs
+    assert "ETH/USDT:USDT" in multicombs
+
     with pytest.raises(ValueError, match=r"Could not combine.* to get a valid pair."):
-        ex.get_valid_pair_combination("NOPAIR", "ETH")
+        for x in ex.get_valid_pair_combination("NOPAIR", "ETH"):
+            pass
 
 
 @pytest.mark.parametrize(
@@ -4686,7 +4741,7 @@ def test_extract_cost_curr_rate(mocker, default_conf, order, expected) -> None:
     ],
 )
 def test_calculate_fee_rate(mocker, default_conf, order, expected, unknown_fee_rate) -> None:
-    mocker.patch(f"{EXMS}.fetch_ticker", return_value={"last": 0.081})
+    mocker.patch(f"{EXMS}.get_tickers", return_value={"NEO/BTC": {"last": 0.081}})
     if unknown_fee_rate:
         default_conf["exchange"]["unknown_fee_rate"] = unknown_fee_rate
 
@@ -4863,7 +4918,7 @@ def test_set_margin_mode(mocker, default_conf, margin_mode):
         ("okx", TradingMode.FUTURES, MarginMode.ISOLATED, False),
         # * Remove once implemented
         ("binance", TradingMode.MARGIN, MarginMode.CROSS, True),
-        ("binance", TradingMode.FUTURES, MarginMode.CROSS, True),
+        ("binance", TradingMode.FUTURES, MarginMode.CROSS, False),
         ("kraken", TradingMode.MARGIN, MarginMode.CROSS, True),
         ("kraken", TradingMode.FUTURES, MarginMode.CROSS, True),
         ("gate", TradingMode.MARGIN, MarginMode.CROSS, True),
@@ -6142,6 +6197,7 @@ def test_get_liquidation_price(
     default_conf_usdt["exchange"]["name"] = exchange_name
     default_conf_usdt["margin_mode"] = margin_mode
     mocker.patch("freqtrade.exchange.gate.Gate.validate_ordertypes")
+    mocker.patch(f"{EXMS}.price_to_precision", lambda s, x, y, **kwargs: y)
     exchange = get_patched_exchange(mocker, default_conf_usdt, exchange=exchange_name)
 
     exchange.get_maintenance_ratio_and_amt = MagicMock(return_value=(0.01, 0.01))
