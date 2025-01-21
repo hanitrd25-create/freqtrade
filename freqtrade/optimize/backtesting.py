@@ -38,7 +38,7 @@ from freqtrade.exchange import (
 )
 from freqtrade.exchange.exchange import Exchange
 from freqtrade.ft_types import BacktestResultType, get_BacktestResultType_default
-from freqtrade.ft_types.order_to_type import OrderToCreate
+from freqtrade.ft_types.order_to_type import OrderToCreate, convert_to_validated_orders
 from freqtrade.leverage.liquidation_price import update_liquidation_prices
 from freqtrade.mixins import LoggingMixin
 from freqtrade.optimize.backtest_caching import get_strategy_run_id
@@ -609,11 +609,20 @@ class Backtesting:
             trade.pair, trade, trade.leverage, current_time
         )
 
+        if orders_to_validate is None or not isinstance(orders_to_validate, list):
+            logger.warning(
+                f"adjust_custom_orders should return a list instead of {orders_to_validate}"
+            )
+            return trade
+
+        # convert dict of orders specifications to list of orderToValidate
+        validated_otc = convert_to_validated_orders(orders_to_validate)
+
         trade_side: LongShort = "short" if trade.is_short else "long"
         ordersToCreate = []
 
-        if (len(orders_to_validate) > 0) & self.config["custom_orders_enable"]:
-            for otv in orders_to_validate:
+        if (len(validated_otc) > 0) & self.config["custom_orders_enable"]:
+            for otv in validated_otc:
                 amount = amount_to_contract_precision(
                     abs(otv.amount),
                     trade.amount_precision,
@@ -803,7 +812,9 @@ class Backtesting:
                         stake_currency=self.config["stake_currency"],
                         dry_run=self.config["dry_run"],
                     )
-                if not (order.ft_order_side == trade.exit_side and order.safe_amount == trade.amount):
+                if not (
+                    order.ft_order_side == trade.exit_side and order.safe_amount == trade.amount
+                ):
                     self._call_adjust_stop(current_date, trade, order.ft_price)
                 return True
         return False
