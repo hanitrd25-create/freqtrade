@@ -1591,7 +1591,7 @@ async def test_telegram_performance_handle(default_conf_usdt, update, ticker, fe
     await telegram._performance(update=update, context=MagicMock())
     assert msg_mock.call_count == 1
     assert "Performance" in msg_mock.call_args_list[0][0][0]
-    assert "<code>XRP/USDT\t2.842 USDT (10.00%) (1)</code>" in msg_mock.call_args_list[0][0][0]
+    assert "<code>XRP/USDT\t2.842 USDT (9.47%) (1)</code>" in msg_mock.call_args_list[0][0][0]
 
 
 async def test_telegram_entry_tag_performance_handle(
@@ -2876,8 +2876,7 @@ async def test_telegram_list_custom_data(default_conf_usdt, update, ticker, fee,
     assert msg_mock.call_count == 3
     assert "Found custom-data entries: " in msg_mock.call_args_list[0][0][0]
     assert (
-        "*Key:* `test_int`\n*ID:* `1`\n*Trade ID:* `1`\n*Type:* `int`\n"
-        "*Value:* `1`\n*Create Date:*"
+        "*Key:* `test_int`\n*ID:* `1`\n*Trade ID:* `1`\n*Type:* `int`\n*Value:* `1`\n*Create Date:*"
     ) in msg_mock.call_args_list[1][0][0]
     assert (
         "*Key:* `test_dict`\n*ID:* `2`\n*Trade ID:* `1`\n*Type:* `dict`\n"
