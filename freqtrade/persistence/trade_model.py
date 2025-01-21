@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from math import isclose
 from typing import Any, ClassVar, Optional, cast
-from freqtrade.ft_types.order_to_type import OrderToCreate
 
 from sqlalchemy import (
     Enum,
@@ -45,6 +44,7 @@ from freqtrade.exchange import (
     price_to_precision,
 )
 from freqtrade.exchange.exchange_types import CcxtOrder
+from freqtrade.ft_types.order_to_type import OrderToCreate
 from freqtrade.leverage import interest
 from freqtrade.misc import safe_value_fallback
 from freqtrade.persistence.base import ModelBase, SessionType
@@ -354,8 +354,8 @@ class Order(ModelBase):
         side: str,
         amount: float | None = None,
         price: float | None = None,
-        test:  float | None = None,
-        requested_order: OrderToCreate | None = None
+        test: float | None = None,
+        requested_order: OrderToCreate | None = None,
     ) -> Self:
         """
         Parse an order from a ccxt object and return a new order Object.
@@ -373,7 +373,7 @@ class Order(ModelBase):
             ft_pair=pair,
             ft_amount=amount or order.get("amount", None) or 0.0,
             ft_price=price or order.get("price", None),
-            ft_trigger_price=trigger_price
+            ft_trigger_price=trigger_price,
         )
 
         o.update_from_ccxt_object(order)

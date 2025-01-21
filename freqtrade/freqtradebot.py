@@ -1013,7 +1013,7 @@ class FreqtradeBot(LoggingMixin):
             requested_order.side,
             requested_order.amount,
             requested_order.price,
-            requested_order
+            requested_order,
         )
         order_obj.ft_order_tag = requested_order.order_tag
         order_id = executed_order["id"]
@@ -1177,7 +1177,7 @@ class FreqtradeBot(LoggingMixin):
                 reduceOnly=False,
                 time_in_force=o.time_in_force,
                 leverage=o.leverage,
-                trigger_price=o.trigger_price
+                trigger_price=o.trigger_price,
             )
 
             orders_summary.append((o, order_res))
@@ -1373,12 +1373,7 @@ class FreqtradeBot(LoggingMixin):
         try:
             for sdo, exo in executed_orders_res:
                 order_obj = Order.parse_from_ccxt_object(
-                    exo,
-                    trade.pair,
-                    exo.side,
-                    exo.amount,
-                    exo.price,
-                    sdo
+                    exo, trade.pair, exo.side, exo.amount, exo.price, sdo
                 )
                 order_obj.ft_order_tag = exo.order_tag
 
