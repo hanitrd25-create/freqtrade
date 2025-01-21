@@ -630,18 +630,25 @@ class Backtesting:
                     trade.contract_size,
                 )
 
-                propose_rate = price_to_precision(
+                proposed_rate = price_to_precision(
                     otv.price, trade.price_precision, self.precision_mode_price
                 )
 
-                req_stake_amount = (propose_rate * amount) / trade.leverage
+                proposed_trigger_price = None
+                if otv.trigger_price is not None:
+                    proposed_trigger_price = price_to_precision(
+                        otv.trigger_price, trade.price_precision, self.precision_mode_price
+                    )
+
+                req_stake_amount = (proposed_rate * amount) / trade.leverage
                 reduce_only = True if otv.action_side == "exit" else False
 
                 order_to_create = OrderToCreate(
                     pair=trade.pair,
                     type=otv.type,
                     side=otv.side,
-                    price=propose_rate,
+                    price=proposed_rate,
+                    trigger_price=proposed_trigger_price,
                     amount=amount,
                     stake_amount=req_stake_amount,
                     leverage=trade.leverage,
@@ -766,6 +773,25 @@ class Backtesting:
         """Rate is within candle, therefore filled"""
         return row[LOW_IDX] <= rate <= row[HIGH_IDX]
 
+    def _check_fill_condition(self, order: Order, row: tuple):
+        """Checks if the order meets the conditions to be filled."""
+
+        # Handle trigger price logic
+        if order.ft_trigger_price is not None:
+            if not order.ft_trigger_state:
+                # The trigger condition has not been met yet
+                return False
+
+        # Evaluate order type-specific conditions
+        if order.order_type == "market":
+            # Market orders can always execute
+            return True
+        elif order.order_type == "limit":
+            return row[LOW_IDX] <= order.ft_price <= row[HIGH_IDX]
+
+        # Default fallback for unknown order types
+        return False
+
     def _call_adjust_stop(self, current_date: datetime, trade: LocalTrade, current_rate: float):
         profit = trade.calc_profit_ratio(current_rate)
         self.strategy.ft_stoploss_adjust(
@@ -785,12 +811,12 @@ class Backtesting:
         :return:  True if the order filled.
         """
         if order:
-            if order.ft_trigger_price and not order.trigger_state:
+            if order.ft_trigger_price is not None and not order.ft_trigger_state:
                 if self._get_rate_in_candle(order.ft_trigger_price, row):
                     # We should update order trigger_state to True
                     order.trigger_bt_order(current_date)
 
-            if self._get_rate_in_candle(order.ft_price, row):
+            if self._check_fill_condition(order, row):
                 order.close_bt_order(current_date, trade)
                 self._run_funding_fees(trade, current_date, force=True)
                 strategy_safe_wrapper(self.strategy.order_filled, default_retval=None)(
