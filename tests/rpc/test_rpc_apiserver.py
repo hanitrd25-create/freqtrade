@@ -35,6 +35,7 @@ from tests.conftest import (
     CURRENT_TEST_STRATEGY,
     EXMS,
     create_mock_trades,
+    create_mock_trades_usdt,
     get_mock_coro,
     get_patched_freqtradebot,
     log_has,
@@ -185,7 +186,7 @@ def test_api_ui_fallback(botclient, mocker):
 def test_api_ui_version(botclient, mocker):
     _ftbot, client = botclient
 
-    mocker.patch("freqtrade.commands.deploy_commands.read_ui_version", return_value="0.1.2")
+    mocker.patch("freqtrade.commands.deploy_ui.read_ui_version", return_value="0.1.2")
     rc = client_get(client, "/ui_version")
     assert rc.status_code == 200
     assert rc.json()["version"] == "0.1.2"
@@ -284,7 +285,7 @@ def test_api_token_login(botclient):
     rc = client.get(
         f"{BASE_URI}/count",
         headers={
-            "Authorization": f'Bearer {rc.json()["access_token"]}',
+            "Authorization": f"Bearer {rc.json()['access_token']}",
             "Origin": "http://example.com",
         },
     )
@@ -299,7 +300,7 @@ def test_api_token_refresh(botclient):
         f"{BASE_URI}/token/refresh",
         data=None,
         headers={
-            "Authorization": f'Bearer {rc.json()["refresh_token"]}',
+            "Authorization": f"Bearer {rc.json()['refresh_token']}",
             "Origin": "http://example.com",
         },
     )
@@ -556,7 +557,7 @@ def test_api_balance(botclient, mocker, rpc_balance, tickers):
     ftbot.config["dry_run"] = False
     mocker.patch(f"{EXMS}.get_balances", return_value=rpc_balance)
     mocker.patch(f"{EXMS}.get_tickers", tickers)
-    mocker.patch(f"{EXMS}.get_valid_pair_combination", side_effect=lambda a, b: f"{a}/{b}")
+    mocker.patch(f"{EXMS}.get_valid_pair_combination", side_effect=lambda a, b: [f"{a}/{b}"])
     ftbot.wallets.update()
 
     rc = client_get(client, f"{BASE_URI}/balance")
@@ -574,7 +575,6 @@ def test_api_balance(botclient, mocker, rpc_balance, tickers):
         "est_stake_bot": pytest.approx(11.879999),
         "stake": "BTC",
         "is_position": False,
-        "leverage": 1.0,
         "position": 0.0,
         "side": "long",
         "is_bot_managed": True,
@@ -692,20 +692,22 @@ def test_api_show_config(botclient):
 
 def test_api_daily(botclient, mocker, ticker, fee, markets):
     ftbot, client = botclient
-    patch_get_signal(ftbot)
-    mocker.patch.multiple(
-        EXMS,
-        get_balances=MagicMock(return_value=ticker),
-        fetch_ticker=ticker,
-        get_fee=fee,
-        markets=PropertyMock(return_value=markets),
-    )
+
+    ftbot.config["dry_run"] = False
+    mocker.patch(f"{EXMS}.get_balances", return_value=ticker)
+    mocker.patch(f"{EXMS}.get_tickers", ticker)
+    mocker.patch(f"{EXMS}.get_fee", fee)
+    mocker.patch(f"{EXMS}.markets", PropertyMock(return_value=markets))
+    ftbot.wallets.update()
+
     rc = client_get(client, f"{BASE_URI}/daily")
     assert_response(rc)
-    assert len(rc.json()["data"]) == 7
-    assert rc.json()["stake_currency"] == "BTC"
-    assert rc.json()["fiat_display_currency"] == "USD"
-    assert rc.json()["data"][0]["date"] == str(datetime.now(timezone.utc).date())
+    response = rc.json()
+    assert "data" in response
+    assert len(response["data"]) == 7
+    assert response["stake_currency"] == "BTC"
+    assert response["fiat_display_currency"] == "USD"
+    assert response["data"][0]["date"] == str(datetime.now(timezone.utc).date())
 
 
 def test_api_weekly(botclient, mocker, ticker, fee, markets, time_machine):
@@ -1055,6 +1057,7 @@ def test_api_edge_disabled(botclient, mocker, ticker, fee, markets):
 )
 def test_api_profit(botclient, mocker, ticker, fee, markets, is_short, expected):
     ftbot, client = botclient
+    ftbot.config["tradable_balance_ratio"] = 1
     patch_get_signal(ftbot)
     mocker.patch.multiple(
         EXMS,
@@ -1154,59 +1157,35 @@ def test_api_performance(botclient, fee):
     ftbot, client = botclient
     patch_get_signal(ftbot)
 
-    trade = Trade(
-        pair="LTC/ETH",
-        amount=1,
-        exchange="binance",
-        stake_amount=1,
-        open_rate=0.245441,
-        is_open=False,
-        fee_close=fee.return_value,
-        fee_open=fee.return_value,
-        close_rate=0.265441,
-        leverage=1.0,
-    )
-    trade.close_profit = trade.calc_profit_ratio(trade.close_rate)
-    trade.close_profit_abs = trade.calc_profit(trade.close_rate)
-    Trade.session.add(trade)
-
-    trade = Trade(
-        pair="XRP/ETH",
-        amount=5,
-        stake_amount=1,
-        exchange="binance",
-        open_rate=0.412,
-        is_open=False,
-        fee_close=fee.return_value,
-        fee_open=fee.return_value,
-        close_rate=0.391,
-        leverage=1.0,
-    )
-    trade.close_profit = trade.calc_profit_ratio(trade.close_rate)
-    trade.close_profit_abs = trade.calc_profit(trade.close_rate)
-
-    Trade.session.add(trade)
-    Trade.commit()
+    create_mock_trades_usdt(fee)
 
     rc = client_get(client, f"{BASE_URI}/performance")
     assert_response(rc)
-    assert len(rc.json()) == 2
+    assert len(rc.json()) == 3
     assert rc.json() == [
         {
             "count": 1,
-            "pair": "LTC/ETH",
-            "profit": 7.61,
-            "profit_pct": 7.61,
-            "profit_ratio": 0.07609203,
-            "profit_abs": 0.0187228,
+            "pair": "NEO/USDT",
+            "profit": 1.99,
+            "profit_pct": 1.99,
+            "profit_ratio": 0.0199375,
+            "profit_abs": 3.9875,
         },
         {
             "count": 1,
-            "pair": "XRP/ETH",
-            "profit": -5.57,
-            "profit_pct": -5.57,
-            "profit_ratio": -0.05570419,
-            "profit_abs": -0.1150375,
+            "pair": "XRP/USDT",
+            "profit": 9.47,
+            "profit_abs": 2.8425,
+            "profit_pct": 9.47,
+            "profit_ratio": pytest.approx(0.094749999),
+        },
+        {
+            "count": 1,
+            "pair": "LTC/USDT",
+            "profit": -20.45,
+            "profit_abs": -4.09,
+            "profit_pct": -20.45,
+            "profit_ratio": -0.2045,
         },
     ]
 
@@ -1270,7 +1249,7 @@ def test_api_mix_tag(botclient, fee):
 
 @pytest.mark.parametrize(
     "is_short,current_rate,open_trade_value",
-    [(True, 1.098e-05, 15.0911775), (False, 1.099e-05, 15.1668225)],
+    [(True, 1.098e-05, 6.134625), (False, 1.099e-05, 6.165375)],
 )
 def test_api_status(
     botclient, mocker, ticker, fee, markets, is_short, current_rate, open_trade_value
@@ -1295,7 +1274,7 @@ def test_api_status(
     assert_response(rc)
     assert len(rc.json()) == 4
     assert rc.json()[0] == {
-        "amount": 123.0,
+        "amount": 50.0,
         "amount_requested": 123.0,
         "close_date": None,
         "close_timestamp": None,
@@ -2148,26 +2127,62 @@ def test_api_exchanges(botclient):
     response = rc.json()
     assert isinstance(response["exchanges"], list)
     assert len(response["exchanges"]) > 20
-    okx = [x for x in response["exchanges"] if x["name"] == "okx"][0]
+    okx = [x for x in response["exchanges"] if x["classname"] == "okx"][0]
     assert okx == {
-        "name": "okx",
+        "classname": "okx",
+        "name": "OKX",
         "valid": True,
         "supported": True,
         "comment": "",
+        "dex": False,
+        "is_alias": False,
+        "alias_for": None,
         "trade_modes": [
             {"trading_mode": "spot", "margin_mode": ""},
             {"trading_mode": "futures", "margin_mode": "isolated"},
         ],
     }
 
-    mexc = [x for x in response["exchanges"] if x["name"] == "mexc"][0]
+    mexc = [x for x in response["exchanges"] if x["classname"] == "mexc"][0]
     assert mexc == {
-        "name": "mexc",
+        "classname": "mexc",
+        "name": "MEXC Global",
         "valid": True,
         "supported": False,
+        "dex": False,
         "comment": "",
+        "is_alias": False,
+        "alias_for": None,
         "trade_modes": [{"trading_mode": "spot", "margin_mode": ""}],
     }
+    waves = [x for x in response["exchanges"] if x["classname"] == "wavesexchange"][0]
+    assert waves == {
+        "classname": "wavesexchange",
+        "name": "Waves.Exchange",
+        "valid": True,
+        "supported": False,
+        "dex": True,
+        "comment": ANY,
+        "is_alias": False,
+        "alias_for": None,
+        "trade_modes": [{"trading_mode": "spot", "margin_mode": ""}],
+    }
+
+
+def test_list_hyperoptloss(botclient, tmp_path):
+    ftbot, client = botclient
+    ftbot.config["user_data_dir"] = tmp_path
+
+    rc = client_get(client, f"{BASE_URI}/hyperoptloss")
+    assert_response(rc)
+    response = rc.json()
+    assert isinstance(response["loss_functions"], list)
+    assert len(response["loss_functions"]) > 0
+
+    sharpeloss = [r for r in response["loss_functions"] if r["name"] == "SharpeHyperOptLoss"]
+    assert len(sharpeloss) == 1
+    assert "Sharpe Ratio calculation" in sharpeloss[0]["description"]
+    assert len([r for r in response["loss_functions"] if r["name"] == "SortinoHyperOptLoss"]) == 1
 
 
 def test_api_freqaimodels(botclient, tmp_path, mocker):
@@ -2320,9 +2335,7 @@ def test_api_pairlists_evaluate(botclient, tmp_path, mocker):
     ]
     assert response["result"]["length"] == 2
     # Patch __run_pairlists
-    plm = mocker.patch(
-        "freqtrade.rpc.api_server.api_background_tasks.__run_pairlist", return_value=None
-    )
+    plm = mocker.patch("freqtrade.rpc.api_server.api_pairlists.__run_pairlist", return_value=None)
     body = {
         "pairlists": [
             {
@@ -2579,6 +2592,8 @@ def test_api_delete_backtest_history_entry(botclient, tmp_path: Path):
     file_path.touch()
     meta_path = file_path.with_suffix(".meta.json")
     meta_path.touch()
+    market_change_path = file_path.with_name(file_path.stem + "_market_change.feather")
+    market_change_path.touch()
 
     rc = client_delete(client, f"{BASE_URI}/backtest/history/randomFile.json")
     assert_response(rc, 503)
@@ -2595,6 +2610,7 @@ def test_api_delete_backtest_history_entry(botclient, tmp_path: Path):
 
     assert not file_path.exists()
     assert not meta_path.exists()
+    assert not market_change_path.exists()
 
 
 def test_api_patch_backtest_history_entry(botclient, tmp_path: Path):
@@ -2825,3 +2841,74 @@ def test_api_ws_send_msg(default_conf, mocker, caplog):
     finally:
         ApiServer.shutdown()
         ApiServer.shutdown()
+
+
+def test_api_download_data(botclient, mocker, tmp_path, caplog):
+    ftbot, client = botclient
+
+    rc = client_post(client, f"{BASE_URI}/download_data", data={})
+    assert_response(rc, 503)
+    assert rc.json()["detail"] == "Bot is not in the correct state."
+
+    ftbot.config["runmode"] = RunMode.WEBSERVER
+    ftbot.config["user_data_dir"] = tmp_path
+
+    body = {
+        "pairs": ["ETH/BTC", "XRP/BTC"],
+        "timeframes": ["5m"],
+    }
+
+    # Fail, already running
+    ApiBG.download_data_running = True
+    rc = client_post(client, f"{BASE_URI}/download_data", body)
+    assert_response(rc, 400)
+    assert rc.json()["detail"] == "Data Download is already running."
+
+    # Reset running state
+    ApiBG.download_data_running = False
+
+    # Test successful download
+    mocker.patch(
+        "freqtrade.data.history.history_utils.download_data",
+        return_value=None,
+    )
+
+    rc = client_post(client, f"{BASE_URI}/download_data", body)
+    assert_response(rc)
+    assert rc.json()["status"] == "Data Download started in background."
+    job_id = rc.json()["job_id"]
+
+    rc = client_get(client, f"{BASE_URI}/background/{job_id}")
+    assert_response(rc)
+    response = rc.json()
+    assert response["job_id"] == job_id
+    assert response["job_category"] == "download_data"
+    # Job finishes immediately due to mock.
+    assert response["status"] == "success"
+
+    # Background list contains the job
+    rc = client_get(client, f"{BASE_URI}/background")
+    assert_response(rc)
+    response = rc.json()
+    assert isinstance(response, list)
+    assert len(response) == 1
+    assert response[0]["job_id"] == job_id
+
+    # Test error case
+    ApiBG.download_data_running = False
+    mocker.patch(
+        "freqtrade.data.history.history_utils.download_data",
+        side_effect=OperationalException("Download error"),
+    )
+    rc = client_post(client, f"{BASE_URI}/download_data", body)
+    assert_response(rc)
+    assert rc.json()["status"] == "Data Download started in background."
+    job_id = rc.json()["job_id"]
+
+    rc = client_get(client, f"{BASE_URI}/background/{job_id}")
+    assert_response(rc)
+    response = rc.json()
+    assert response["job_id"] == job_id
+    assert response["job_category"] == "download_data"
+    assert response["status"] == "failed"
+    assert response["error"] == "Download error"

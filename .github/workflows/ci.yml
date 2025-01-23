@@ -24,8 +24,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ ubuntu-20.04, ubuntu-22.04 ]
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        os: [ "ubuntu-20.04", "ubuntu-22.04", "ubuntu-24.04" ]
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
     - uses: actions/checkout@v4
@@ -35,18 +35,21 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
 
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+        python-version: ${{ matrix.python-version }}
+        cache-dependency-glob: "requirements**.txt"
+        cache-suffix: "${{ matrix.python-version }}"
+        prune-cache: false
+
     - name: Cache_dependencies
       uses: actions/cache@v4
       id: cache
       with:
         path: ~/dependencies/
         key: ${{ runner.os }}-dependencies
-
-    - name: pip cache (linux)
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: test-${{ matrix.os }}-${{ matrix.python-version }}-pip
 
     - name: TA binary *nix
       if: steps.cache.outputs.cache-hit != 'true'
@@ -55,30 +58,46 @@ jobs:
 
     - name: Installation - *nix
       run: |
-        python -m pip install --upgrade pip wheel
+        uv pip install --upgrade wheel
         export LD_LIBRARY_PATH=${HOME}/dependencies/lib:$LD_LIBRARY_PATH
         export TA_LIBRARY_PATH=${HOME}/dependencies/lib
         export TA_INCLUDE_PATH=${HOME}/dependencies/include
-        pip install -r requirements-dev.txt
-        pip install -e ft_client/
-        pip install -e .
+        uv pip install -r requirements-dev.txt
+        uv pip install -e ft_client/
+        uv pip install -e .
 
     - name: Check for version alignment
       run: |
         python build_helpers/freqtrade_client_version_align.py
 
     - name: Tests
+      if: (!(runner.os == 'Linux' && matrix.python-version == '3.12' && matrix.os == 'ubuntu-22.04'))
+      run: |
+        pytest --random-order
+
+    - name: Tests with Coveralls
+      if: (runner.os == 'Linux' && matrix.python-version == '3.12' && matrix.os == 'ubuntu-22.04')
       run: |
         pytest --random-order --cov=freqtrade --cov=freqtrade_client --cov-config=.coveragerc
 
     - name: Coveralls
-      if: (runner.os == 'Linux' && matrix.python-version == '3.10' && matrix.os == 'ubuntu-22.04')
+      if: (runner.os == 'Linux' && matrix.python-version == '3.12' && matrix.os == 'ubuntu-22.04')
       env:
         # Coveralls token. Not used as secret due to github not providing secrets to forked repositories
         COVERALLS_REPO_TOKEN: 6D1m0xupS3FgutfuGao8keFf9Hc0FpIXu
       run: |
         # Allow failure for coveralls
         coveralls || true
+
+    - name: Run json schema extract
+      # This should be kept before the repository check to ensure that the schema is up-to-date
+      run: |
+        python build_helpers/extract_config_json_schema.py
+
+    - name: Run command docs partials extract
+      # This should be kept before the repository check to ensure that the docs are up-to-date
+      run: |
+        python build_helpers/create_command_partials.py
 
     - name: Check for repository changes
       run: |
@@ -133,11 +152,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ "macos-12", "macos-13", "macos-14" ]
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
-        exclude:
-          - os: "macos-14"
-            python-version: "3.9"
+        os: [ "macos-13", "macos-14", "macos-15" ]
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
     - uses: actions/checkout@v4
@@ -148,18 +164,21 @@ jobs:
         python-version: ${{ matrix.python-version }}
         check-latest: true
 
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+        python-version: ${{ matrix.python-version }}
+        cache-dependency-glob: "requirements**.txt"
+        cache-suffix: "${{ matrix.python-version }}"
+        prune-cache: false
+
     - name: Cache_dependencies
       uses: actions/cache@v4
       id: cache
       with:
         path: ~/dependencies/
         key: ${{ matrix.os }}-dependencies
-
-    - name: pip cache (macOS)
-      uses: actions/cache@v4
-      with:
-        path: ~/Library/Caches/pip
-        key: ${{ matrix.os }}-${{ matrix.python-version }}-pip
 
     - name: TA binary *nix
       if: steps.cache.outputs.cache-hit != 'true'
@@ -188,17 +207,17 @@ jobs:
         rm /usr/local/bin/python3.11-config || true
         rm /usr/local/bin/python3.12-config || true
 
-        brew install hdf5 c-blosc libomp
+        brew install libomp
 
     - name: Installation (python)
       run: |
-        python -m pip install --upgrade pip wheel
+        uv pip install wheel
         export LD_LIBRARY_PATH=${HOME}/dependencies/lib:$LD_LIBRARY_PATH
         export TA_LIBRARY_PATH=${HOME}/dependencies/lib
         export TA_INCLUDE_PATH=${HOME}/dependencies/include
-        pip install -r requirements-dev.txt
-        pip install -e ft_client/
-        pip install -e .
+        uv pip install -r requirements-dev.txt
+        uv pip install -e ft_client/
+        uv pip install -e .
 
     - name: Tests
       run: |
@@ -258,7 +277,7 @@ jobs:
     strategy:
       matrix:
         os: [ windows-latest ]
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
     - uses: actions/checkout@v4
@@ -268,19 +287,25 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
 
-    - name: Pip cache (Windows)
-      uses: actions/cache@v4
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
       with:
-        path: ~\AppData\Local\pip\Cache
-        key: ${{ matrix.os }}-${{ matrix.python-version }}-pip
+        enable-cache: true
+        python-version: ${{ matrix.python-version }}
+        cache-dependency-glob: "requirements**.txt"
+        cache-suffix: "${{ matrix.python-version }}"
+        prune-cache: false
 
     - name: Installation
       run: |
+        function uvpipFunction { uv pip $args }
+        Set-Alias -name pip -value uvpipFunction
+
         ./build_helpers/install_windows.ps1
 
     - name: Tests
       run: |
-        pytest --random-order
+        pytest --random-order --durations 20 -n auto
 
     - name: Check for repository changes
       run: |
@@ -317,6 +342,17 @@ jobs:
     - name: Mypy
       run: |
         mypy freqtrade scripts tests
+
+    - name: Run Pester tests (PowerShell)
+      run: |
+        $PSVersionTable
+        Set-PSRepository psgallery -InstallationPolicy trusted
+        Install-Module -Name Pester -RequiredVersion 5.3.1 -Confirm:$false -Force -SkipPublisherCheck
+        $Error.clear()
+        Invoke-Pester -Path "tests" -CI
+        if ($Error.Length -gt 0) {exit 1}
+
+      shell: powershell
 
     - name: Discord notification
       uses: rjstone/discord-webhook-notify@v1
@@ -368,7 +404,6 @@ jobs:
     - name: Documentation build
       run: |
         pip install -r docs/requirements-docs.txt
-        pip install mkdocs
         mkdocs build
 
     - name: Discord notification
@@ -391,6 +426,15 @@ jobs:
       with:
         python-version: "3.12"
 
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+        python-version: "3.12"
+        cache-dependency-glob: "requirements**.txt"
+        cache-suffix: "3.12"
+        prune-cache: false
+
     - name: Cache_dependencies
       uses: actions/cache@v4
       id: cache
@@ -398,11 +442,6 @@ jobs:
         path: ~/dependencies/
         key: ${{ runner.os }}-dependencies
 
-    - name: pip cache (linux)
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: test-${{ matrix.os }}-${{ matrix.python-version }}-pip
 
     - name: TA binary *nix
       if: steps.cache.outputs.cache-hit != 'true'
@@ -411,13 +450,13 @@ jobs:
 
     - name: Installation - *nix
       run: |
-        python -m pip install --upgrade pip wheel
+        uv pip install --upgrade wheel
         export LD_LIBRARY_PATH=${HOME}/dependencies/lib:$LD_LIBRARY_PATH
         export TA_LIBRARY_PATH=${HOME}/dependencies/lib
         export TA_INCLUDE_PATH=${HOME}/dependencies/include
-        pip install -r requirements-dev.txt
-        pip install -e ft_client/
-        pip install -e .
+        uv pip install -r requirements-dev.txt
+        uv pip install -e ft_client/
+        uv pip install -e .
 
     - name: Tests incl. ccxt compatibility tests
       env:
@@ -499,13 +538,40 @@ jobs:
           ft_client/dist
         retention-days: 10
 
-  deploy-pypi:
-    name: "Deploy to PyPI"
+  deploy-test-pypi:
+    name: "Publish Python 🐍 distribution 📦 to TestPyPI"
     needs: [ build ]
     runs-on: ubuntu-22.04
     if: (github.event_name == 'release')
     environment:
-      name: release
+      name: testpypi
+      url: https://test.pypi.org/p/freqtrade
+    permissions:
+      id-token: write
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download artifact  📦
+      uses: actions/download-artifact@v4
+      with:
+        pattern: freqtrade*-build
+        path: dist
+        merge-multiple: true
+
+    - name: Publish to PyPI (Test)
+      uses: pypa/gh-action-pypi-publish@v1.12.3
+      with:
+        repository-url: https://test.pypi.org/legacy/
+
+
+  deploy-pypi:
+    name: "Publish Python 🐍 distribution 📦 to PyPI"
+    needs: [ build ]
+    runs-on: ubuntu-22.04
+    if: (github.event_name == 'release')
+    environment:
+      name: pypi
       url: https://pypi.org/p/freqtrade
     permissions:
       id-token: write
@@ -520,14 +586,8 @@ jobs:
         path: dist
         merge-multiple: true
 
-
-    - name: Publish to PyPI (Test)
-      uses: pypa/gh-action-pypi-publish@v1.8.14
-      with:
-        repository-url: https://test.pypi.org/legacy/
-
     - name: Publish to PyPI
-      uses: pypa/gh-action-pypi-publish@v1.8.14
+      uses: pypa/gh-action-pypi-publish@v1.12.3
 
 
   deploy-docker:
@@ -566,11 +626,11 @@ jobs:
           docker version -f '{{.Server.Experimental}}'
 
     - name: Set up QEMU
-      uses: docker/setup-qemu-action@v1
+      uses: docker/setup-qemu-action@v3
 
     - name: Set up Docker Buildx
       id: buildx
-      uses: docker/setup-buildx-action@v1
+      uses: docker/setup-buildx-action@v3
 
     - name: Available platforms
       run: echo ${{ steps.buildx.outputs.platforms }}
