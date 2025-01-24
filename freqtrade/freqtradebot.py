@@ -1085,49 +1085,20 @@ class FreqtradeBot(LoggingMixin):
             open_date=trade.date_last_filled_utc if trade else open_date,
         )
 
-        # This is a new trade
-        if trade is None:
-            trade = Trade(
-                pair=pair,
-                base_currency=base_currency,
-                stake_currency=self.config["stake_currency"],
-                stake_amount=requested_order.stake_amount,  # TODO must use executed_order
-                amount=0,
-                is_open=True,
-                amount_requested=amount_requested,
-                fee_open=fee,
-                fee_close=fee,
-                open_rate=enter_limit_filled_price,
-                open_rate_requested=requested_order.price,
-                open_date=open_date,
-                exchange=self.exchange.id,
-                strategy=self.strategy.get_strategy_name(),
-                enter_tag=enter_tag,
-                timeframe=timeframe_to_minutes(self.config["timeframe"]),
-                leverage=requested_order.leverage,
-                is_short=is_short,
-                trading_mode=self.trading_mode,
-                funding_fees=funding_fees,
-                amount_precision=self.exchange.get_precision_amount(pair),
-                price_precision=self.exchange.get_precision_price(pair),
-                precision_mode=self.exchange.precisionMode,
-                precision_mode_price=self.exchange.precision_mode_price,
-                contract_size=self.exchange.get_contract_size(pair),
-            )
-            stoploss = self.strategy.stoploss if not self.edge else self.edge.get_stoploss(pair)
-            trade.adjust_stop_loss(trade.open_rate, stoploss, initial=True)
-
-        else:
-            # This is additional entry, we reset fee_open_currency so timeout checking can work
-            trade.is_open = True
-            trade.fee_open_currency = None
-            trade.open_rate_requested = requested_order.price
-            trade.set_funding_fees(funding_fees)
-
-        trade.orders.append(order_obj)
-        trade.recalc_trade_from_orders()
-        Trade.session.add(trade)
-        Trade.commit()
+        # Create or update trade
+        trade = self.create_or_update_trade(
+            trade,
+            pair,
+            base_currency,
+            is_short,
+            requested_order,
+            order_obj,
+            enter_limit_filled_price,
+            open_date,
+            fee,
+            funding_fees,
+            enter_tag,
+        )
 
         # Updating wallets
         self.wallets.update()
@@ -1152,6 +1123,69 @@ class FreqtradeBot(LoggingMixin):
                 )
 
         return True
+
+    def create_or_update_trade(
+        self,
+        trade: Trade | None,
+        pair: str,
+        base_currency: str,
+        is_short: bool,
+        requested_order: Order,
+        order_obj: Order,
+        enter_limit_filled_price: float,
+        open_date: datetime,
+        fee: float,
+        funding_fees: float,
+        enter_tag: str | None,
+    ) -> Trade:
+        # This is a new trade
+        if trade is None:
+            trade = Trade(
+                pair=pair,
+                base_currency=base_currency,
+                stake_currency=self.config["stake_currency"],
+                stake_amount=requested_order.stake_amount,  # TODO must use executed_order
+                amount=0,
+                is_open=True,
+                amount_requested=requested_order.amount,
+                fee_open=fee,
+                fee_close=fee,
+                open_rate=enter_limit_filled_price,
+                open_rate_requested=requested_order.price,
+                open_date=open_date,
+                exchange=self.exchange.id,
+                strategy=self.strategy.get_strategy_name(),
+                enter_tag=enter_tag,
+                timeframe=timeframe_to_minutes(self.config["timeframe"]),
+                leverage=requested_order.leverage,
+                is_short=is_short,
+                trading_mode=self.trading_mode,
+                funding_fees=funding_fees,
+                amount_precision=self.exchange.get_precision_amount(pair),
+                price_precision=self.exchange.get_precision_price(pair),
+                precision_mode=self.exchange.precisionMode,
+                precision_mode_price=self.exchange.precision_mode_price,
+                contract_size=self.exchange.get_contract_size(pair),
+            )
+
+            # Set initial stop loss
+            stoploss = self.strategy.stoploss if not self.edge else self.edge.get_stoploss(pair)
+            trade.adjust_stop_loss(trade.open_rate, stoploss, initial=True)
+
+        else:
+            # This is additional entry, we reset fee_open_currency so timeout checking can work
+            trade.is_open = True
+            trade.fee_open_currency = None
+            trade.open_rate_requested = requested_order.price
+            trade.set_funding_fees(funding_fees)
+
+        # Add order to trade and recalculate
+        trade.orders.append(order_obj)
+        trade.recalc_trade_from_orders()
+        Trade.session.add(trade)
+        Trade.commit()
+
+        return trade
 
     def cancel_stoploss_on_exchange(self, trade: Trade) -> Trade:
         # First cancelling stoploss on exchange ...
