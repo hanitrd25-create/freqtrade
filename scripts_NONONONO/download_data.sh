@@ -1,11 +1,18 @@
 cd /mnt/d/develop/freqtrade
 source .venv/bin/activate
 
+# freqtrade download-data \
+#     --exchange binance \
+#     --pairs BTC/USDT ETH/USDT \
+#     --timeframes 1m 5m 15m 30m 1h 4h 1d 1w 1M \
+#     --trading-mode spot \
+#     --timerange 20170801-20240810 \
+
 freqtrade download-data \
     --exchange binance \
-    --pairs BTC/USDT ETH/USDT \
+    --pairs BTC/USDT:USDT ETH/USDT:USDT \
     --timeframes 1m 5m 15m 30m 1h 4h 1d 1w 1M \
-    --trading-mode spot \
+    --trading-mode futures \
     --timerange 20170801-20240810 \
 
     # --data-format-ohlcv hdf5 \
