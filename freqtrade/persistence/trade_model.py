@@ -45,6 +45,7 @@ from freqtrade.exchange import (
     price_to_precision,
 )
 from freqtrade.exchange.exchange_types import CcxtOrder
+from freqtrade.ft_types.order_to_type import OrderToCreate
 from freqtrade.leverage import interest
 from freqtrade.misc import safe_value_fallback
 from freqtrade.persistence.base import ModelBase, SessionType
@@ -95,6 +96,9 @@ class Order(ModelBase):
     ft_is_open: Mapped[bool] = mapped_column(nullable=False, default=True, index=True)
     ft_amount: Mapped[float] = mapped_column(Float(), nullable=False)
     ft_price: Mapped[float] = mapped_column(Float(), nullable=False)
+    ft_trigger_price: Mapped[float] = mapped_column(Float(), nullable=True)
+    ft_trigger_state: Mapped[bool] = mapped_column(nullable=False, default=False)
+    ft_triggered_date: Mapped[datetime | None] = mapped_column(nullable=True)
     ft_cancel_reason: Mapped[str] = mapped_column(String(CUSTOM_TAG_MAX_LENGTH), nullable=True)
 
     order_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
@@ -191,8 +195,8 @@ class Order(ModelBase):
     def __repr__(self):
         return (
             f"Order(id={self.id}, trade={self.ft_trade_id}, order_id={self.order_id}, "
-            f"side={self.side}, filled={self.safe_filled}, price={self.safe_price}, "
-            f"amount={self.amount}, "
+            f"side={self.side}, amount={self.safe_amount}, "
+            f"filled={self.safe_filled}, price={self.safe_price}, "
             f"status={self.status}, date={self.order_date_utc:{DATETIME_PRINT_FORMAT}})"
         )
 
@@ -322,6 +326,10 @@ class Order(ModelBase):
                 trade.is_stop_loss_trailing = False
             trade.adjust_stop_loss(trade.open_rate, trade.stop_loss_pct)
 
+    def trigger_bt_order(self, trigger_date: datetime):
+        self.ft_triggered_date = trigger_date
+        self.ft_trigger_state = True
+
     @staticmethod
     def update_orders(orders: list["Order"], order: CcxtOrder):
         """
@@ -347,17 +355,26 @@ class Order(ModelBase):
         side: str,
         amount: float | None = None,
         price: float | None = None,
+        test: float | None = None,
+        requested_order: OrderToCreate | None = None,
     ) -> Self:
         """
         Parse an order from a ccxt object and return a new order Object.
         Optional support for overriding amount and price is only used for test simplification.
         """
+        trigger_price = (
+            requested_order.trigger_price
+            if requested_order and requested_order.trigger_price is not None
+            else None
+        )
+
         o = cls(
             order_id=str(order["id"]),
             ft_order_side=side,
             ft_pair=pair,
             ft_amount=amount or order.get("amount", None) or 0.0,
             ft_price=price or order.get("price", None),
+            ft_trigger_price=trigger_price,
         )
 
         o.update_from_ccxt_object(order)

@@ -38,6 +38,7 @@ from freqtrade.exchange import (
 )
 from freqtrade.exchange.exchange import Exchange
 from freqtrade.ft_types import BacktestResultType, get_BacktestResultType_default
+from freqtrade.ft_types.order_to_type import OrderToCreate, convert_to_validated_orders
 from freqtrade.leverage.liquidation_price import update_liquidation_prices
 from freqtrade.mixins import LoggingMixin
 from freqtrade.optimize.backtest_caching import get_strategy_run_id
@@ -601,6 +602,104 @@ class Backtesting:
             # This should not be reached...
             return row[OPEN_IDX]
 
+    def _get_adjust_custom_orders_for_candle(
+        self, trade: LocalTrade, row: tuple, current_time: datetime
+    ) -> LocalTrade:
+        orders_to_validate = self.strategy.adjust_custom_orders(
+            trade.pair, trade, trade.leverage, current_time
+        )
+
+        if orders_to_validate is None or not isinstance(orders_to_validate, list):
+            logger.warning(
+                f"adjust_custom_orders should return a list instead of {orders_to_validate}"
+            )
+            return trade
+
+        # convert dict of orders specifications to list of orderToValidate
+        validated_otc = convert_to_validated_orders(orders_to_validate)
+
+        trade_side: LongShort = "short" if trade.is_short else "long"
+        ordersToCreate = []
+
+        if (len(validated_otc) > 0) & self.config["custom_orders_enable"]:
+            for otv in validated_otc:
+                amount = amount_to_contract_precision(
+                    abs(otv.amount),
+                    trade.amount_precision,
+                    self.precision_mode,
+                    trade.contract_size,
+                )
+
+                proposed_rate = price_to_precision(
+                    otv.price, trade.price_precision, self.precision_mode_price
+                )
+
+                proposed_trigger_price = None
+                if otv.trigger_price is not None:
+                    proposed_trigger_price = price_to_precision(
+                        otv.trigger_price, trade.price_precision, self.precision_mode_price
+                    )
+
+                req_stake_amount = (proposed_rate * amount) / trade.leverage
+                reduce_only = True if otv.action_side == "exit" else False
+
+                order_to_create = OrderToCreate(
+                    pair=trade.pair,
+                    type=otv.type,
+                    side=otv.side,
+                    price=proposed_rate,
+                    trigger_price=proposed_trigger_price,
+                    amount=amount,
+                    stake_amount=req_stake_amount,
+                    leverage=trade.leverage,
+                    order_tag=otv.order_tag,  # Ensure a valid string is passed
+                    reduce_only=reduce_only,
+                    time_in_force=otv.time_in_force,  # Ensure a valid string is passed
+                    trade_side=trade_side,
+                )
+                ordersToCreate.append(order_to_create)
+
+        sum_stake_amount = sum(od.stake_amount for od in ordersToCreate)
+        if sum_stake_amount > self.config.get("stake_amount", 0):
+            logger.warning(
+                f"custom_orders sum_stake_amount of {sum_stake_amount} "
+                f"is over stake_amount of {self.config.get('stake_amount', 0)}, "
+                f"aborting {trade.pair} custom_orders {otv.action_side} "
+                "you should reduce your position size or raise the stake_amount"
+            )
+            ordersToCreate = []
+
+        # Get existing order tags
+        existing_tags = {order.ft_order_tag for order in trade.orders}
+
+        # Filter orders by side and exclude those with existing tags
+        entry_otc: list[OrderToCreate] = []
+        exit_otc: list[OrderToCreate] = []
+
+        for order in ordersToCreate:
+            if order.side == trade.entry_side:
+                if order.order_tag in existing_tags:
+                    logger.info(
+                        f"Skipping {trade.entry_side} order with duplicate order_tag "
+                        f" '{order.order_tag}' for {trade.pair}. Skipped order: {order}"
+                    )
+                else:
+                    entry_otc.append(order)
+            else:
+                if order.order_tag in existing_tags:
+                    logger.info(
+                        f"Skipping {trade.exit_side} order with duplicate order_tag "
+                        f" '{order.order_tag}' for {trade.pair}. Skipped order: {order}"
+                    )
+                else:
+                    exit_otc.append(order)
+
+        # Simulate order execution
+        trade = self.update_trade_from_ordersToCreate(trade, entry_otc, row)
+        trade = self.update_trade_from_ordersToCreate(trade, exit_otc, row)
+
+        return trade
+
     def _get_adjust_trade_entry_for_candle(
         self, trade: LocalTrade, row: tuple, current_time: datetime
     ) -> LocalTrade:
@@ -670,9 +769,28 @@ class Backtesting:
 
         return trade
 
-    def _get_order_filled(self, rate: float, row: tuple) -> bool:
+    def _get_rate_in_candle(self, rate: float, row: tuple) -> bool:
         """Rate is within candle, therefore filled"""
         return row[LOW_IDX] <= rate <= row[HIGH_IDX]
+
+    def _check_fill_condition(self, order: Order, row: tuple):
+        """Checks if the order meets the conditions to be filled."""
+
+        # Handle trigger price logic
+        if order.ft_trigger_price is not None:
+            if not order.ft_trigger_state:
+                # The trigger condition has not been met yet
+                return False
+
+        # Evaluate order type-specific conditions
+        if order.order_type == "market":
+            # Market orders can always execute
+            return True
+        elif order.order_type == "limit":
+            return row[LOW_IDX] <= order.ft_price <= row[HIGH_IDX]
+
+        # Default fallback for unknown order types
+        return False
 
     def _call_adjust_stop(self, current_date: datetime, trade: LocalTrade, current_rate: float):
         profit = trade.calc_profit_ratio(current_rate)
@@ -692,31 +810,39 @@ class Backtesting:
         Check if an order is open and if it should've filled.
         :return:  True if the order filled.
         """
-        if order and self._get_order_filled(order.ft_price, row):
-            order.close_bt_order(current_date, trade)
-            self._run_funding_fees(trade, current_date, force=True)
-            strategy_safe_wrapper(self.strategy.order_filled, default_retval=None)(
-                pair=trade.pair,
-                trade=trade,  # type: ignore[arg-type]
-                order=order,
-                current_time=current_date,
-            )
+        if order:
+            if order.ft_trigger_price is not None and not order.ft_trigger_state:
+                if self._get_rate_in_candle(order.ft_trigger_price, row):
+                    # We should update order trigger_state to True
+                    order.trigger_bt_order(current_date)
 
-            if self.margin_mode == MarginMode.CROSS or not (
-                order.ft_order_side == trade.exit_side and order.safe_amount == trade.amount
-            ):
-                # trade is still open or we are in cross margin mode and
-                # must update all liquidation prices
-                update_liquidation_prices(
-                    trade,
-                    exchange=self.exchange,
-                    wallets=self.wallets,
-                    stake_currency=self.config["stake_currency"],
-                    dry_run=self.config["dry_run"],
+            if self._check_fill_condition(order, row):
+                order.close_bt_order(current_date, trade)
+                self._run_funding_fees(trade, current_date, force=True)
+                strategy_safe_wrapper(self.strategy.order_filled, default_retval=None)(
+                    pair=trade.pair,
+                    trade=trade,  # type: ignore[arg-type]
+                    order=order,
+                    current_time=current_date,
                 )
-            if not (order.ft_order_side == trade.exit_side and order.safe_amount == trade.amount):
-                self._call_adjust_stop(current_date, trade, order.ft_price)
-            return True
+
+                if self.margin_mode == MarginMode.CROSS or not (
+                    order.ft_order_side == trade.exit_side and order.safe_amount == trade.amount
+                ):
+                    # trade is still open or we are in cross margin mode and
+                    # must update all liquidation prices
+                    update_liquidation_prices(
+                        trade,
+                        exchange=self.exchange,
+                        wallets=self.wallets,
+                        stake_currency=self.config["stake_currency"],
+                        dry_run=self.config["dry_run"],
+                    )
+                if not (
+                    order.ft_order_side == trade.exit_side and order.safe_amount == trade.amount
+                ):
+                    self._call_adjust_stop(current_date, trade, order.ft_price)
+                return True
         return False
 
     def _process_exit_order(
@@ -870,6 +996,10 @@ class Backtesting:
         # Check if we need to adjust our current positions
         if self.strategy.position_adjustment_enable:
             trade = self._get_adjust_trade_entry_for_candle(trade, row, current_time)
+
+        # Check if we need to adjust our current positions (custom_orders)
+        if self.strategy.custom_orders_enable:
+            trade = self._get_adjust_custom_orders_for_candle(trade, row, current_time)
 
         if trade.is_open:
             enter = row[SHORT_IDX] if trade.is_short else row[LONG_IDX]
@@ -1150,6 +1280,42 @@ class Backtesting:
                 remaining=amount,
                 cost=amount * propose_rate * (1 + self.fee),
                 ft_order_tag=entry_tag,
+            )
+            order._trade_bt = trade
+            trade.orders.append(order)
+            self._try_close_open_order(order, trade, current_time, row)
+            trade.recalc_trade_from_orders()
+
+        return trade
+
+    def update_trade_from_ordersToCreate(
+        self, trade: LocalTrade, ordersToCreate: list[OrderToCreate], row: tuple
+    ) -> LocalTrade:
+        current_time = row[DATE_IDX].to_pydatetime()
+        for o in ordersToCreate:
+            self.order_id_counter += 1
+            order = Order(
+                id=self.order_id_counter,
+                ft_trade_id=trade.id,
+                ft_is_open=True,
+                ft_pair=trade.pair,
+                order_id=str(self.order_id_counter),
+                symbol=trade.pair,
+                ft_order_side=o.side,
+                side=o.side,
+                order_type=o.type,
+                status="open",
+                order_date=current_time,
+                order_filled_date=current_time,
+                order_update_date=current_time,
+                ft_price=o.price,
+                price=o.price,
+                average=o.price,
+                amount=o.amount,
+                filled=0,
+                remaining=o.amount,
+                cost=o.amount * o.price * (1 + self.fee),
+                ft_order_tag=o.order_tag,
             )
             order._trade_bt = trade
             trade.orders.append(order)

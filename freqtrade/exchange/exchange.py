@@ -1236,12 +1236,15 @@ class Exchange:
         leverage: float,
         reduceOnly: bool,
         time_in_force: str = "GTC",
+        trigger_price: float = None,
     ) -> dict:
         params = self._params.copy()
         if time_in_force != "GTC" and ordertype != "market":
             params.update({"timeInForce": time_in_force.upper()})
         if reduceOnly:
             params.update({"reduceOnly": True})
+        if trigger_price:
+            params.update({"triggerPrice": trigger_price})
         return params
 
     def _order_needs_price(self, side: BuySell, ordertype: str) -> bool:
@@ -1262,6 +1265,7 @@ class Exchange:
         leverage: float,
         reduceOnly: bool = False,
         time_in_force: str = "GTC",
+        trigger_price: float = None,
     ) -> CcxtOrder:
         if self._config["dry_run"]:
             dry_order = self.create_dry_run_order(
@@ -1269,7 +1273,9 @@ class Exchange:
             )
             return dry_order
 
-        params = self._get_params(side, ordertype, leverage, reduceOnly, time_in_force)
+        params = self._get_params(
+            side, ordertype, leverage, reduceOnly, time_in_force, trigger_price
+        )
 
         try:
             # Set the precision for amount and price(rate) as accepted by the exchange
