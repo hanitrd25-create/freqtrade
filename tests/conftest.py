@@ -2,13 +2,13 @@
 import json
 import logging
 import platform
+import numpy as np
 import re
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, PropertyMock
 
-import numpy as np
 import pandas as pd
 import pytest
 from xdist.scheduler.loadscope import LoadScopeScheduling
