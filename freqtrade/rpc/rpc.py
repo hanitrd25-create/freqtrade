@@ -1300,7 +1300,7 @@ class RPC:
             raise RPCException("Edge is not enabled.")
         return self._freqtrade.edge.accepted_pairs()
 
-@staticmethod
+    @staticmethod
     def _convert_dataframe_to_dict(
         strategy: str,
         pair: str,
@@ -1357,7 +1357,7 @@ class RPC:
             "strategy": strategy,
             "all_columns": dataframe_columns,
             "columns": list(dataframe.columns),
-            "data": values if has_content else [],  # Use our converted values here
+            "data": values if has_content else [],  
             "length": len(dataframe),
             "buy_signals": signals["enter_long"],  # Deprecated
             "sell_signals": signals["exit_long"],  # Deprecated
