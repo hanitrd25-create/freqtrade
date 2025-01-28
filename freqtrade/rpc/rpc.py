@@ -1357,7 +1357,7 @@ class RPC:
             "strategy": strategy,
             "all_columns": dataframe_columns,
             "columns": list(dataframe.columns),
-            "data": values if has_content else [],  
+            "data": values if has_content else [],
             "length": len(dataframe),
             "buy_signals": signals["enter_long"],  # Deprecated
             "sell_signals": signals["exit_long"],  # Deprecated
