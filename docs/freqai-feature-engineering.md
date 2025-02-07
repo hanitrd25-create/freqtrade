@@ -186,7 +186,7 @@ In total, the number of features the user of the presented example strategy has 
 
 ### Gain finer control over `feature_engineering_*` functions with `metadata`
 
-All `feature_engineering_*` and `set_freqai_targets()` functions are passed a `metadata` dictionary which contains information about the `pair`, `tf` (timeframe), and `period` that FreqAI is automating for feature building. As such, a user can use `metadata` inside `feature_engineering_*` functions as criteria for blocking/reserving features for certain timeframes, periods, pairs etc.
+All `feature_engineering_*` and `set_freqai_targets()` functions are passed a `metadata` dictionary, which contains information about the `pair`, `tf` (timeframe), and `period` that FreqAI is automating for feature building. As such, a user can use `metadata` inside `feature_engineering_*` functions as criteria for blocking/reserving features for certain timeframes, periods, pairs etc.
 
 ```python
 def feature_engineering_expand_all(self, dataframe: DataFrame, period, metadata, **kwargs) -> DataFrame:

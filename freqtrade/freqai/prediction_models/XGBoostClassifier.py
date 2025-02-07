@@ -43,6 +43,7 @@ class XGBoostClassifier(BaseClassifierModel):
 
         if self.freqai_info.get("data_split_parameters", {}).get("test_size", 0.1) == 0:
             eval_set = None
+            eval_weights = None
         else:
             test_features = data_dictionary["test_features"].to_numpy()
             test_labels = data_dictionary["test_labels"].to_numpy()[:, 0]
@@ -51,6 +52,7 @@ class XGBoostClassifier(BaseClassifierModel):
                 test_labels = pd.Series(le.transform(test_labels), dtype="int64")
 
             eval_set = [(test_features, test_labels)]
+            eval_weights = [data_dictionary["test_weights"]]
 
         train_weights = data_dictionary["train_weights"]
 
@@ -58,7 +60,14 @@ class XGBoostClassifier(BaseClassifierModel):
 
         model = XGBClassifier(**self.model_training_parameters)
 
-        model.fit(X=X, y=y, eval_set=eval_set, sample_weight=train_weights, xgb_model=init_model)
+        model.fit(
+            X=X,
+            y=y,
+            eval_set=eval_set,
+            sample_weight=train_weights,
+            sample_weight_eval_set=eval_weights,
+            xgb_model=init_model,
+        )
 
         return model
 
