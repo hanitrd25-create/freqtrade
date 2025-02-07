@@ -36,7 +36,7 @@ class XGBoostRegressor(BaseRegressionModel):
             eval_set = None
             eval_weights = None
         else:
-            eval_set = [(data_dictionary["test_features"], data_dictionary["test_labels"]), (X, y)]
+            eval_set = [(data_dictionary["test_features"], data_dictionary["test_labels"])]
             eval_weights = [data_dictionary["test_weights"]]
 
         sample_weight = data_dictionary["train_weights"]
