@@ -50,6 +50,10 @@ def ohlcv_to_dataframe(
             "low": "float",
             "close": "float",
             "volume": "float",
+            "quote_volume": "float",
+            "count":"float",
+            "taker_buy_volume":"float",
+            "taker_buy_quote_volume":"float",
         }
     )
     return clean_ohlcv_dataframe(
@@ -80,7 +84,11 @@ def clean_ohlcv_dataframe(
             "high": "max",
             "low": "min",
             "close": "last",
-            "volume": "max",
+            "volume": "sum",
+            "quote_volume": "sum",
+            "count":"sum",
+            "taker_buy_volume":"sum",
+            "taker_buy_quote_volume":"sum",
         }
     )
     # eliminate partial candle
@@ -102,7 +110,7 @@ def ohlcv_fill_up_missing_data(dataframe: DataFrame, timeframe: str, pair: str) 
     """
     from freqtrade.exchange import timeframe_to_resample_freq
 
-    ohlcv_dict = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+    ohlcv_dict = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum", "quote_volume": "sum", "count":"sum", "taker_buy_volume":"sum", "taker_buy_quote_volume":"sum"}
     resample_interval = timeframe_to_resample_freq(timeframe)
     # Resample to create "NAN" values
     df = dataframe.resample(resample_interval, on="date").agg(ohlcv_dict)
@@ -288,7 +296,7 @@ def reduce_dataframe_footprint(df: DataFrame) -> DataFrame:
 
     df_dtypes = df.dtypes
     for column, dtype in df_dtypes.items():
-        if column in ["open", "high", "low", "close", "volume"]:
+        if column in ["open", "high", "low", "close", "volume","quote_volume", "count", "taker_buy_volume", "taker_buy_quote_volume"]:
             continue
         if dtype == np.float64:
             df_dtypes[column] = np.float32
