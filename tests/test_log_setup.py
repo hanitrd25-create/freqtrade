@@ -180,3 +180,21 @@ def test_reduce_verbosity():
     assert logging.getLogger("freqtrade.strategy.hyper").getEffectiveLevel() == prior_level
     assert logging.getLogger("freqtrade").getEffectiveLevel() == prior_level
     # base level wasn't changed
+
+def test_set_loggers_json(mocker):
+    logger = logging.getLogger()
+    orig_handlers = logger.handlers
+    logger.handlers = []
+
+    config = {
+        "verbosity": 2,
+        "logfile": "json",
+    }
+
+    setup_logging_pre()
+    setup_logging(config)
+    assert len(logger.handlers) == 2
+    assert [x for x in logger.handlers if type(x).__name__ == "StreamHandler"]
+    assert [x for x in logger.handlers if isinstance(x, FTBufferingHandler)]
+    # reset handlers to not break pytest
+    logger.handlers = orig_handlers
