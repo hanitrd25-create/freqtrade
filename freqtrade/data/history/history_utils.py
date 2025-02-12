@@ -299,8 +299,6 @@ def _download_pair_history(
                 drop_incomplete=False,
             )
             
-            if candle_type == CandleType.FUTURES:
-                data.to_csv("clean_ohlcv_dataframe.csv")
 
         logger.debug(
             "New Start: %s",
