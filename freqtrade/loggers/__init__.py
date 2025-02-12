@@ -28,18 +28,6 @@ bufferHandler.setFormatter(Formatter(LOGFORMAT))
 
 error_console = Console(stderr=True, color_system=None)
 
-class JsonFormatter(logging.Formatter):
-    def format(self, record):
-        log_entry = {
-            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created)),
-            "level": record.levelname,
-            "logger": record.name,
-            "message": record.getMessage(),
-        }
-        if record.exc_info:
-            log_entry["exception"] = self.formatException(record.exc_info)
-        return json.dumps(log_entry)
-
 def get_existing_handlers(handlertype):
     """
     Returns Existing handler or None (if the handler has not yet been added to the root handlers).
