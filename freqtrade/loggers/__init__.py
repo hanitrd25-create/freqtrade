@@ -3,6 +3,9 @@ from logging import Formatter
 from logging.handlers import RotatingFileHandler, SysLogHandler
 from pathlib import Path
 
+import json
+import time
+
 from rich.console import Console
 
 from freqtrade.constants import Config
@@ -24,6 +27,17 @@ bufferHandler.setFormatter(Formatter(LOGFORMAT))
 
 error_console = Console(stderr=True, color_system=None)
 
+class JsonFormatter(logging.Formatter):
+    def format(self, record):
+        log_entry = {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created)),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        if record.exc_info:
+            log_entry["exception"] = self.formatException(record.exc_info)
+        return json.dumps(log_entry)
 
 def get_existing_handlers(handlertype):
     """
@@ -55,10 +69,15 @@ def setup_logging_pre() -> None:
 
 def setup_logging(config: Config) -> None:
     """
-    Process -v/--verbose, --logfile options
+    Process -v/--verbose, --logfile options.
     """
     # Log level
     verbosity = config["verbosity"]
+
+    # Remove any existing handlers to prevent duplicate logging
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
+
     logging.root.addHandler(bufferHandler)
     if config.get("print_colorized", True):
         logger.info("Enabling colorized output.")
@@ -101,6 +120,13 @@ def setup_logging(config: Config) -> None:
             # syslog config. The messages should be equal for this.
             handler_jd.setFormatter(Formatter("%(name)s - %(levelname)s - %(message)s"))
             logging.root.addHandler(handler_jd)
+        elif s[0] == "json":
+            """
+            Enable JSON logging when 'logfile' is set to 'json'.
+            """
+            json_handler = logging.StreamHandler()
+            json_handler.setFormatter(JsonFormatter())  # Apply JSON format
+            logging.root.addHandler(json_handler)
         else:
             handler_rf = get_existing_handlers(RotatingFileHandler)
             if handler_rf:
