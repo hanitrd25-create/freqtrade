@@ -74,11 +74,6 @@ def setup_logging(config: Config) -> None:
     # Log level
     verbosity = config["verbosity"]
 
-    # Remove any existing handlers to prevent duplicate logging
-    for handler in logging.root.handlers[:]:
-        logging.root.removeHandler(handler)
-
-    logging.root.addHandler(bufferHandler)
     if config.get("print_colorized", True):
         logger.info("Enabling colorized output.")
         error_console._color_system = error_console._detect_color_system()
@@ -123,7 +118,10 @@ def setup_logging(config: Config) -> None:
         elif s[0] == "json":
             """
             Enable JSON logging when 'logfile' is set to 'json'.
-            """
+            """  
+            rich_handler_rf = get_existing_handlers(FtRichHandler)
+            if rich_handler_rf:
+                logging.root.removeHandler(rich_handler_rf)
             json_handler = logging.StreamHandler()
             json_handler.setFormatter(JsonFormatter())  # Apply JSON format
             logging.root.addHandler(json_handler)
