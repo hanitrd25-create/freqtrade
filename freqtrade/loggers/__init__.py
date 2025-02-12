@@ -12,6 +12,7 @@ from freqtrade.constants import Config
 from freqtrade.exceptions import OperationalException
 from freqtrade.loggers.buffering_handler import FTBufferingHandler
 from freqtrade.loggers.ft_rich_handler import FtRichHandler
+from freqtrade.loggers.json_formatter import JsonFormatter
 from freqtrade.loggers.set_log_levels import set_loggers
 
 
