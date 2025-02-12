@@ -284,7 +284,9 @@ class StrategyResolver(IResolver):
 
                 # register temp path with the bot
                 abs_paths.insert(0, temp.resolve())
-
+        '''
+        abs_paths [PosixPath('freq_strategies/strategies')]
+        '''
         strategy = StrategyResolver._load_object(
             paths=abs_paths,
             object_name=strategy_name,

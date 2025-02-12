@@ -36,6 +36,10 @@ def ohlcv_to_dataframe(
     """
     logger.debug(f"Converting candle (OHLCV) data to dataframe for pair {pair}.")
     cols = DEFAULT_DATAFRAME_COLUMNS
+    '''
+    [1738915200000, 96714.18992337, 100112.3, 96572.60063704, 98257.2, 0.0], [1738944000000, 98249.7, 98529.5, 95585.80865926, 
+    96456.01788889, 0.0], [1738972800000, 96456.01788889, 96843.5, 95746.06239259, 96153.4, 0.0],
+    '''
     df = DataFrame(ohlcv, columns=cols)
 
     df["date"] = to_datetime(df["date"], unit="ms", utc=True)
@@ -95,7 +99,7 @@ def clean_ohlcv_dataframe(
     if drop_incomplete:
         data.drop(data.tail(1).index, inplace=True)
         logger.debug("Dropping last candle")
-
+    
     if fill_missing:
         return ohlcv_fill_up_missing_data(data, timeframe, pair)
     else:

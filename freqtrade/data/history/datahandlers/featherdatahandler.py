@@ -30,7 +30,6 @@ class FeatherDataHandler(IDataHandler):
         """
         filename = self._pair_data_filename(self._datadir, pair, timeframe, candle_type)
         self.create_dir_if_needed(filename)
-
         data.reset_index(drop=True).loc[:, self._columns].to_feather(
             filename, compression_level=9, compression="lz4"
         )
@@ -68,6 +67,10 @@ class FeatherDataHandler(IDataHandler):
                     "low": "float",
                     "close": "float",
                     "volume": "float",
+                    "quote_volume": "float",
+                    "count": "float",
+                    "taker_buy_volume": "float",
+                    "taker_buy_quote_volume": "float",
                 }
             )
             pairdata["date"] = to_datetime(pairdata["date"], unit="ms", utc=True)

@@ -309,7 +309,6 @@ class Backtesting:
         self.timerange.adjust_start_if_necessary(
             timeframe_to_seconds(self.timeframe), self.required_startup, min_date
         )
-
         self.progress.set_new_value(1)
         return data, self.timerange
 
@@ -378,7 +377,7 @@ class Backtesting:
                 )
         else:
             self.futures_data = {}
-
+        
     def disable_database_use(self):
         disable_database_use(self.timeframe)
 
@@ -1505,6 +1504,12 @@ class Backtesting:
         indexes: dict = defaultdict(int)
 
         for current_time in self._time_generator(start_date, end_date):
+            '''
+            current_time 2024-04-04 19:50:00+00:00
+            current_time 2024-04-04 19:55:00+00:00
+            current_time 2024-04-04 20:00:00+00:00
+            current_time 2024-04-04 20:05:00+00:00
+            '''
             # Loop for each main candle.
             self.check_abort()
             # Reset open trade count for this candle
@@ -1581,6 +1586,9 @@ class Backtesting:
                     # Spread candle into detail timeframe and cache that -
                     # only once per main candle
                     # and only if we can expect activity.
+                    '''
+                    pair_detail:  [[Timestamp('2024-01-02 23:00:00+0000', tz='UTC'), 45006.7, 45016.4, 44970.0, 44999.1, 0.0, 0.0, 0.0, 0.0, '', ''], [Timestamp('2024-01-02 23:01:00+0000', tz='UTC'), 44999.1, 45018.8, 44986.9, 45016.3, 0.0, 0.0, 0.0, 0.0, '', ''], [Timestamp('2024-01-02 23:02:00+0000', tz='UTC'), 45016.3, 45020.0, 44992.6, 45015.5, 0.0, 0.0, 0.0, 0.0, '', ''], [Timestamp('2024-01-02 23:03:00+0000', tz='UTC'), 45015.4, 45015.5, 44974.2, 44992.3, 0.0, 0.0, 0.0, 0.0, '', ''], [Timestamp('2024-01-02 23:04:00+0000', tz='UTC'), 44992.3, 44997.0, 44965.3, 44965.3, 0.0, 0.0, 0.0, 0.0, '', '']]
+                    '''
                     pair_detail = self.get_detail_data(pair, row)
                     if pair_detail is not None:
                         pair_detail_cache[pair] = pair_detail
@@ -1611,7 +1619,6 @@ class Backtesting:
         # Use dict of lists with data for performance
         # (looping lists is a lot faster than pandas DataFrames)
         data: dict = self._get_ohlcv_as_lists(processed)
-
         # Loop timerange and get candle for each pair at that point in time
         for (
             current_time,
@@ -1661,7 +1668,6 @@ class Backtesting:
 
         # need to reprocess data every time to populate signals
         preprocessed = self.strategy.advise_all_indicators(data)
-
         # Trim startup period from analyzed dataframe
         # This only used to determine if trimming would result in an empty dataframe
         preprocessed_tmp = trim_dataframes(preprocessed, timerange, self.required_startup)
