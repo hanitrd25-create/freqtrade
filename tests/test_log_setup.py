@@ -181,6 +181,7 @@ def test_reduce_verbosity():
     assert logging.getLogger("freqtrade").getEffectiveLevel() == prior_level
     # base level wasn't changed
 
+
 def test_set_loggers_json(mocker):
     logger = logging.getLogger()
     orig_handlers = logger.handlers

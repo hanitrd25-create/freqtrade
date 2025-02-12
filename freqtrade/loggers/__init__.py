@@ -25,6 +25,7 @@ bufferHandler.setFormatter(Formatter(LOGFORMAT))
 
 error_console = Console(stderr=True, color_system=None)
 
+
 def get_existing_handlers(handlertype):
     """
     Returns Existing handler or None (if the handler has not yet been added to the root handlers).
