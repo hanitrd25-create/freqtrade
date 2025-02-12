@@ -3,9 +3,6 @@ from logging import Formatter
 from logging.handlers import RotatingFileHandler, SysLogHandler
 from pathlib import Path
 
-import json
-import time
-
 from rich.console import Console
 
 from freqtrade.constants import Config
@@ -107,7 +104,7 @@ def setup_logging(config: Config) -> None:
         elif s[0] == "json":
             """
             Enable JSON logging when 'logfile' is set to 'json'.
-            """  
+            """
             rich_handler_rf = get_existing_handlers(FtRichHandler)
             if rich_handler_rf:
                 logging.root.removeHandler(rich_handler_rf)

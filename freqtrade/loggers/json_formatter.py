@@ -2,6 +2,7 @@ import json
 import logging
 import time
 
+
 class JsonFormatter(logging.Formatter):
     """
     Custom logging formatter that outputs logs in structured JSON format.
