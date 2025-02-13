@@ -56,12 +56,11 @@ def setup_logging_pre() -> None:
 
 def setup_logging(config: Config) -> None:
     """
-    Process -v/--verbose, --logfile options.
+    Process -v/--verbose, --logfile options
     """
     # Log level
     verbosity = config["verbosity"]
     logging.root.addHandler(bufferHandler)
-
     if config.get("print_colorized", True):
         logger.info("Enabling colorized output.")
         error_console._color_system = error_console._detect_color_system()
