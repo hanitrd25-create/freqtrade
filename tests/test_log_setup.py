@@ -195,7 +195,7 @@ def test_set_loggers_json(mocker):
     setup_logging_pre()
     setup_logging(config)
     assert len(logger.handlers) == 2
-    assert [x for x in logger.handlers if type(x).__name__ == "StreamHandler"]
+    assert [x for x in logger.handlers if isinstance(x, logging.StreamHandler)]
     assert [x for x in logger.handlers if isinstance(x, FTBufferingHandler)]
     # reset handlers to not break pytest
     logger.handlers = orig_handlers
