@@ -49,14 +49,6 @@ class Bitget(Exchange):
         (TradingMode.FUTURES, MarginMode.ISOLATED)
     ]
 
-    @property
-    def _ccxt_config(self) -> dict:
-        config = {}
-        if self.trading_mode == TradingMode.FUTURES:
-            config.update({"options": {"defaultType": "swap"}})
-        config.update(super()._ccxt_config)
-        return config
-
     @retrier
     def additional_exchange_init(self) -> None:
         try:
