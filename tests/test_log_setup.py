@@ -11,6 +11,7 @@ from freqtrade.loggers import (
     setup_logging,
     setup_logging_pre,
 )
+from freqtrade.loggers.json_formatter import JsonFormatter
 from freqtrade.loggers.set_log_levels import (
     reduce_verbosity_for_bias_tester,
     restore_verbosity_for_bias_tester,
@@ -197,5 +198,25 @@ def test_set_loggers_json(mocker):
     assert len(logger.handlers) == 2
     assert [x for x in logger.handlers if isinstance(x, logging.StreamHandler)]
     assert [x for x in logger.handlers if isinstance(x, FTBufferingHandler)]
-    # reset handlers to not break pytest
+
+    # Find the StreamHandler
+    stream_handler = next(
+        (h for h in logger.handlers if isinstance(h, logging.StreamHandler)), None
+    )
+    assert stream_handler, "StreamHandler was not found in logger.handlers"
+
+    # Ensure the handler has the correct formatter
+    assert stream_handler.formatter, "StreamHandler is missing a formatter"
+
+    # Verify the formatter is a JSON formatter
+    assert isinstance(stream_handler.formatter, JsonFormatter), (
+        "StreamHandler has incorrect formatter type"
+    )
+
+    # Check if the FTBufferingHandler is present
+    assert any(isinstance(h, FTBufferingHandler) for h in logger.handlers), (
+        "FTBufferingHandler is missing"
+    )
+
+    # Reset handlers to not break pytest
     logger.handlers = orig_handlers
