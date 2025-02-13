@@ -60,6 +60,7 @@ def setup_logging(config: Config) -> None:
     """
     # Log level
     verbosity = config["verbosity"]
+    logging.root.addHandler(bufferHandler)
 
     if config.get("print_colorized", True):
         logger.info("Enabling colorized output.")
