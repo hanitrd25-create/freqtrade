@@ -351,7 +351,7 @@ def test_get_max_pair_stake_amount_bitget(default_conf, mocker, leverage_tiers):
     assert exchange.get_max_pair_stake_amount("BTC/USDT:USDT", 1.0) == 1000000000
     assert exchange.get_max_pair_stake_amount("BTC/USDT:USDT", 1.0, 10.0) == 100000000
 
-    assert exchange.get_max_pair_stake_amount("TTT/USDT:USDT", 1.0) == float("inf")  # Not in tiers
+    assert exchange.get_max_pair_stake_amount("TTT/USDT:USDT", 1.0) == 1.0  # Not in tiers
 
 
 def test_bitget_ohlcv_candle_limit(default_conf, mocker):

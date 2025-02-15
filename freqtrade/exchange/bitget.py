@@ -133,14 +133,6 @@ class Bitget(Exchange):
 
                     if latest_candles:
                         data.append(latest_candles[0])
-                    else:
-                        estimated_candle = await self._estimate_current_candle(
-                            pair, timeframe, newest_candle_start
-                        )
-                        if estimated_candle:
-                            data.append(estimated_candle)
-                        else:
-                            logger.warning(f"can't for {pair} get candle of {timeframe}")
 
             return pair, timeframe, candle_type, data, partial_candle
 
@@ -215,7 +207,7 @@ class Bitget(Exchange):
             return float("inf")  # Not actually inf, but this probably won't matter for SPOT
 
         if pair not in self._leverage_tiers:
-            return float("inf")
+            return 1.0
 
         pair_tiers = self._leverage_tiers[pair]
         return pair_tiers[-1]["maxNotional"] / leverage
