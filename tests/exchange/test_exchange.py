@@ -2235,9 +2235,6 @@ async def test__async_get_historic_ohlcv(default_conf, mocker, caplog, exchange_
     candles = (end_ts - start_ts) / 300_000
     exp = candles // exchange.ohlcv_candle_limit("5m", candle_type, start_ts) + 1
 
-    # Depending on the exchange, this should be called between 1 and 6 times.
-    if exchange_name == "bitget":
-        exp += 1
     assert exchange._api_async.fetch_ohlcv.call_count == exp
 
 
