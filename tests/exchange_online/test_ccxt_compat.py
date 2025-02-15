@@ -48,6 +48,22 @@ class TestCCXTExchange:
             }
         )
 
+    def test_ohlcv_limit(self, exchange: EXCHANGE_FIXTURE_TYPE):
+        exch, exchangename = exchange
+        expected_count = EXCHANGES[exchangename].get("candle_count")
+        if not expected_count:
+            pytest.skip("No expected candle count for exchange")
+
+        assert exch.ohlcv_candle_limit("1m", CandleType.SPOT) == expected_count
+
+    def test_ohlcv_limit_futures(self, exchange_futures: EXCHANGE_FIXTURE_TYPE):
+        exch, exchangename = exchange_futures
+        expected_count = EXCHANGES[exchangename].get("candle_count")
+        if not expected_count:
+            pytest.skip("No expected candle count for exchange")
+
+        assert exch.ohlcv_candle_limit("1m", CandleType.SPOT) == expected_count
+
     def test_load_markets_futures(self, exchange_futures: EXCHANGE_FIXTURE_TYPE):
         exchange, exchangename = exchange_futures
         pair = EXCHANGES[exchangename]["pair"]
@@ -279,9 +295,9 @@ class TestCCXTExchange:
             candles = res[3]
             candle_count = exchange.ohlcv_candle_limit(timeframe, candle_type, since_ms) * factor
             candle_count1 = (now.timestamp() * 1000 - since_ms) // timeframe_ms * factor
-            assert len(candles) >= min(
-                candle_count, candle_count1
-            ), f"{len(candles)} < {candle_count} in {timeframe}, Offset: {offset} {factor}"
+            assert len(candles) >= min(candle_count, candle_count1), (
+                f"{len(candles)} < {candle_count} in {timeframe}, Offset: {offset} {factor}"
+            )
             # Check if first-timeframe is either the start, or start + 1
             assert candles[0][0] == since_ms or (since_ms + timeframe_ms)
 
