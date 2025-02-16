@@ -34,6 +34,7 @@ class Bitget(Exchange):
         "ohlcv_has_history": True,
         "mark_ohlcv_timeframe": "4h",
         "funding_fee_timeframe": "8h",
+        "funding_fee_candle_limit": 100,
         "stoploss_on_exchange": True,
         "stoploss_order_types": {"limit": "limit", "market": "market"},
         "stop_price_prop": "stopPrice",
@@ -185,8 +186,6 @@ class Bitget(Exchange):
     def ohlcv_candle_limit(
         self, timeframe: str, candle_type: CandleType, since_ms: int | None = None
     ) -> int:
-        if candle_type == CandleType.FUNDING_RATE:
-            return 100  # Bitget seems to limit funding rate data to 100 entries
         if candle_type == CandleType.MARK:
             return 200
         # For other candle types, use the default or previously defined limit
