@@ -25,7 +25,7 @@ class Bitget(Exchange):
     """
 
     _ft_has: FtHas = {
-        "ohlcv_candle_limit": 1000,
+        "ohlcv_candle_limit": 100,
         "ohlcv_has_history": True,
         "order_time_in_force": ["GTC", "FOK", "IOC"],
         "trades_has_history": True,
