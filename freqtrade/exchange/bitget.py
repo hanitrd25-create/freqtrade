@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import ccxt
 
@@ -8,7 +8,7 @@ from freqtrade.enums import CandleType, MarginMode, PriceType, TradingMode
 from freqtrade.exceptions import DDosProtection, ExchangeError, OperationalException, TemporaryError
 from freqtrade.exchange import Exchange
 from freqtrade.exchange.common import retrier
-from freqtrade.exchange.exchange_types import FtHas
+from freqtrade.exchange.exchange_types import FtHas, OHLCVResponse
 
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ class Bitget(Exchange):
     """
 
     _ft_has: FtHas = {
-        "ohlcv_candle_limit": 100,
+        "ohlcv_candle_limit": 1000,
         "ohlcv_has_history": True,
         "order_time_in_force": ["GTC", "FOK", "IOC"],
         "trades_has_history": True,
@@ -85,6 +85,102 @@ class Bitget(Exchange):
         if self.trading_mode == TradingMode.FUTURES and self.margin_mode:
             params["marginMode"] = self.margin_mode.lower()
         return params
+
+    def timeframe_to_milliseconds(self, timeframe: str) -> int:
+        return ccxt.Exchange.parse_timeframe(timeframe) * 1000
+
+    async def _async_get_historic_ohlcv(
+        self,
+        pair: str,
+        timeframe: str,
+        since_ms: int,
+        candle_type: CandleType,
+        raise_: bool = False,
+        until_ms: int | None = None,
+    ) -> OHLCVResponse:
+        try:
+            pair_data = await super()._async_get_historic_ohlcv(
+                pair, timeframe, since_ms, candle_type, raise_, until_ms
+            )
+
+            pair, _, candle_type, data, partial_candle = pair_data
+
+            if candle_type in [CandleType.MARK, CandleType.INDEX]:
+                current_time = int(datetime.now(timezone.utc).timestamp() * 1000)
+                timeframe_ms = self.timeframe_to_milliseconds(timeframe)
+                last_candle_time = data[-1][0] if data else 0
+
+                if current_time - last_candle_time >= timeframe_ms:
+                    newest_candle_start = current_time - (current_time % timeframe_ms)
+
+                    params = {}
+                    if candle_type == CandleType.MARK:
+                        params["price"] = "mark"
+                    elif candle_type == CandleType.INDEX:
+                        params["price"] = "index"
+
+                    latest_candles = await self._api_async.fetch_ohlcv(
+                        pair, timeframe, newest_candle_start, 1, params
+                    )
+
+                    if latest_candles:
+                        data.append(latest_candles[0])
+                    else:
+                        estimated_candle = await self._estimate_current_candle(
+                            pair, timeframe, newest_candle_start
+                        )
+                        if estimated_candle:
+                            data.append(estimated_candle)
+                        else:
+                            logger.warning(f"can't for {pair} get candle of {timeframe}")
+
+            return pair, timeframe, candle_type, data, partial_candle
+
+        except Exception as e:
+            logger.error(
+                f"params：{pair}, {timeframe}, {since_ms}, {candle_type}, "
+                f"can't get_historic_ohlcv: {e}"
+            )
+            raise
+
+    async def _estimate_current_candle(
+        self, pair: str, timeframe: str, start_time: int
+    ) -> list[float]:
+        timeframe_map: dict[str, tuple[str, int]] = {
+            "5m": ("1m", 5),
+            "15m": ("3m", 5),
+            "30m": ("5m", 6),
+            "1h": ("15m", 4),
+            "4h": ("1h", 4),
+            "6h": ("1h", 6),
+            "12h": ("3h", 4),
+            "1d": ("6h", 4),
+            "1w": ("1d", 7),
+            "1m": ("1w", 4),
+        }
+
+        if timeframe not in timeframe_map:
+            raise Exception(f"{timeframe} not in timeframe list")
+
+        smaller_tf, max_candles = timeframe_map[timeframe]
+
+        try:
+            smaller_candles = await self._api_async.fetch_ohlcv(
+                pair, smaller_tf, start_time, max_candles
+            )
+
+            if not smaller_candles:
+                logger.warning(f"can't get  {smaller_tf} candle data for {pair}")
+                return []
+            open_price = smaller_candles[0][1]
+            high_price = max(candle[2] for candle in smaller_candles)
+            low_price = min(candle[3] for candle in smaller_candles)
+            close_price = smaller_candles[-1][4]
+            volume = sum(candle[5] for candle in smaller_candles)
+            return [start_time, open_price, high_price, low_price, close_price, volume]
+
+        except Exception as e:
+            raise Exception(f"can't for {pair} get candle of {timeframe}: {e}")
 
     def ohlcv_candle_limit(
         self, timeframe: str, candle_type: CandleType, since_ms: int | None = None
