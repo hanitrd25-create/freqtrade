@@ -114,4 +114,5 @@ target/
 !config_examples/config_full.example.json
 !config_examples/config_kraken.example.json
 !config_examples/config_freqai.example.json
-trade-freqtrade-dev-vm-001-jp_key.pem
+
+docker-compose-*.yml

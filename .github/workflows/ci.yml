@@ -11,7 +11,7 @@ on:
     types: [published]
   pull_request:
   schedule:
-    - cron:  '0 5 * * 4'
+    - cron:  '0 3 * * 4'
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}"
@@ -19,34 +19,39 @@ concurrency:
 permissions:
   repository-projects: read
 jobs:
-  build_linux:
+  build-linux:
 
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ ubuntu-20.04, ubuntu-22.04 ]
-        python-version: ["3.9", "3.10", "3.11"]
+        os: [ "ubuntu-22.04", "ubuntu-24.04" ]
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
 
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+        python-version: ${{ matrix.python-version }}
+        cache-dependency-glob: "requirements**.txt"
+        cache-suffix: "${{ matrix.python-version }}"
+        prune-cache: false
+
     - name: Cache_dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       id: cache
       with:
         path: ~/dependencies/
         key: ${{ runner.os }}-dependencies
-
-    - name: pip cache (linux)
-      uses: actions/cache@v3
-      with:
-        path: ~/.cache/pip
-        key: test-${{ matrix.os }}-${{ matrix.python-version }}-pip
 
     - name: TA binary *nix
       if: steps.cache.outputs.cache-hit != 'true'
@@ -55,25 +60,46 @@ jobs:
 
     - name: Installation - *nix
       run: |
-        python -m pip install --upgrade pip wheel
+        uv pip install --upgrade wheel
         export LD_LIBRARY_PATH=${HOME}/dependencies/lib:$LD_LIBRARY_PATH
         export TA_LIBRARY_PATH=${HOME}/dependencies/lib
         export TA_INCLUDE_PATH=${HOME}/dependencies/include
-        pip install -r requirements-dev.txt
-        pip install -e .
+        uv pip install -r requirements-dev.txt
+        uv pip install -e ft_client/
+        uv pip install -e .
+
+    - name: Check for version alignment
+      run: |
+        python build_helpers/freqtrade_client_version_align.py
 
     - name: Tests
+      if: (!(runner.os == 'Linux' && matrix.python-version == '3.12' && matrix.os == 'ubuntu-22.04'))
       run: |
-        pytest --random-order --cov=freqtrade --cov-config=.coveragerc
+        pytest --random-order
+
+    - name: Tests with Coveralls
+      if: (runner.os == 'Linux' && matrix.python-version == '3.12' && matrix.os == 'ubuntu-22.04')
+      run: |
+        pytest --random-order --cov=freqtrade --cov=freqtrade_client --cov-config=.coveragerc
 
     - name: Coveralls
-      if: (runner.os == 'Linux' && matrix.python-version == '3.10' && matrix.os == 'ubuntu-22.04')
+      if: (runner.os == 'Linux' && matrix.python-version == '3.12' && matrix.os == 'ubuntu-22.04')
       env:
         # Coveralls token. Not used as secret due to github not providing secrets to forked repositories
         COVERALLS_REPO_TOKEN: 6D1m0xupS3FgutfuGao8keFf9Hc0FpIXu
       run: |
         # Allow failure for coveralls
         coveralls || true
+
+    - name: Run json schema extract
+      # This should be kept before the repository check to ensure that the schema is up-to-date
+      run: |
+        python build_helpers/extract_config_json_schema.py
+
+    - name: Run command docs partials extract
+      # This should be kept before the repository check to ensure that the docs are up-to-date
+      run: |
+        python build_helpers/create_command_partials.py
 
     - name: Check for repository changes
       run: |
@@ -106,7 +132,11 @@ jobs:
 
     - name: Run Ruff
       run: |
-        ruff check --output-format=github .
+        ruff check --output-format=github
+
+    - name: Run Ruff format check
+      run: |
+        ruff format --check
 
     - name: Mypy
       run: |
@@ -124,11 +154,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ "macos-latest", "macos-13" ]
-        python-version: ["3.9", "3.10", "3.11"]
+        os: [ "macos-13", "macos-14", "macos-15" ]
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -136,25 +168,28 @@ jobs:
         python-version: ${{ matrix.python-version }}
         check-latest: true
 
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+        python-version: ${{ matrix.python-version }}
+        cache-dependency-glob: "requirements**.txt"
+        cache-suffix: "${{ matrix.python-version }}"
+        prune-cache: false
+
     - name: Cache_dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       id: cache
       with:
         path: ~/dependencies/
         key: ${{ matrix.os }}-dependencies
-
-    - name: pip cache (macOS)
-      uses: actions/cache@v3
-      with:
-        path: ~/Library/Caches/pip
-        key: ${{ matrix.os }}-${{ matrix.python-version }}-pip
 
     - name: TA binary *nix
       if: steps.cache.outputs.cache-hit != 'true'
       run: |
         cd build_helpers && ./install_ta-lib.sh ${HOME}/dependencies/; cd ..
 
-    - name: Installation - macOS
+    - name: Installation - macOS (Brew)
       run: |
         # brew update
         # TODO: Should be the brew upgrade
@@ -176,13 +211,17 @@ jobs:
         rm /usr/local/bin/python3.11-config || true
         rm /usr/local/bin/python3.12-config || true
 
-        brew install hdf5 c-blosc libomp
-        python -m pip install --upgrade pip wheel
+        brew install libomp
+
+    - name: Installation (python)
+      run: |
+        uv pip install wheel
         export LD_LIBRARY_PATH=${HOME}/dependencies/lib:$LD_LIBRARY_PATH
         export TA_LIBRARY_PATH=${HOME}/dependencies/lib
         export TA_INCLUDE_PATH=${HOME}/dependencies/include
-        pip install -r requirements-dev.txt
-        pip install -e .
+        uv pip install -r requirements-dev.txt
+        uv pip install -e ft_client/
+        uv pip install -e .
 
     - name: Tests
       run: |
@@ -218,7 +257,11 @@ jobs:
 
     - name: Run Ruff
       run: |
-        ruff check --output-format=github .
+        ruff check --output-format=github
+
+    - name: Run Ruff format check
+      run: |
+        ruff format --check
 
     - name: Mypy
       run: |
@@ -238,29 +281,37 @@ jobs:
     strategy:
       matrix:
         os: [ windows-latest ]
-        python-version: ["3.9", "3.10", "3.11"]
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
 
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
-    - name: Pip cache (Windows)
-      uses: actions/cache@v3
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
       with:
-        path: ~\AppData\Local\pip\Cache
-        key: ${{ matrix.os }}-${{ matrix.python-version }}-pip
+        enable-cache: true
+        python-version: ${{ matrix.python-version }}
+        cache-dependency-glob: "requirements**.txt"
+        cache-suffix: "${{ matrix.python-version }}"
+        prune-cache: false
 
     - name: Installation
       run: |
+        function uvpipFunction { uv pip $args }
+        Set-Alias -name pip -value uvpipFunction
+
         ./build_helpers/install_windows.ps1
 
     - name: Tests
       run: |
-        pytest --random-order
+        pytest --random-order --durations 20 -n auto
 
     - name: Check for repository changes
       run: |
@@ -288,11 +339,26 @@ jobs:
 
     - name: Run Ruff
       run: |
-        ruff check --output-format=github .
+        ruff check --output-format=github
+
+    - name: Run Ruff format check
+      run: |
+        ruff format --check
 
     - name: Mypy
       run: |
         mypy freqtrade scripts tests
+
+    - name: Run Pester tests (PowerShell)
+      run: |
+        $PSVersionTable
+        Set-PSRepository psgallery -InstallationPolicy trusted
+        Install-Module -Name Pester -RequiredVersion 5.3.1 -Confirm:$false -Force -SkipPublisherCheck
+        $Error.clear()
+        Invoke-Pester -Path "tests" -CI
+        if ($Error.Length -gt 0) {exit 1}
+
+      shell: powershell
 
     - name: Discord notification
       uses: rjstone/discord-webhook-notify@v1
@@ -306,11 +372,13 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
 
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: "3.10"
+        python-version: "3.12"
 
     - name: pre-commit dependencies
       run: |
@@ -321,16 +389,20 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
 
     - uses: actions/setup-python@v5
       with:
-        python-version: "3.10"
-    - uses: pre-commit/action@v3.0.0
+        python-version: "3.12"
+    - uses: pre-commit/action@v3.0.1
 
   docs-check:
     runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
 
     - name: Documentation syntax
       run: |
@@ -339,12 +411,11 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: "3.11"
+        python-version: "3.12"
 
     - name: Documentation build
       run: |
         pip install -r docs/requirements-docs.txt
-        pip install mkdocs
         mkdocs build
 
     - name: Discord notification
@@ -356,29 +427,35 @@ jobs:
           webhookUrl: ${{ secrets.DISCORD_WEBHOOK }}
 
 
-  build_linux_online:
+  build-linux-online:
     # Run pytest with "live" checks
     runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
 
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: "3.11"
+        python-version: "3.12"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+        python-version: "3.12"
+        cache-dependency-glob: "requirements**.txt"
+        cache-suffix: "3.12"
+        prune-cache: false
 
     - name: Cache_dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       id: cache
       with:
         path: ~/dependencies/
         key: ${{ runner.os }}-dependencies
 
-    - name: pip cache (linux)
-      uses: actions/cache@v3
-      with:
-        path: ~/.cache/pip
-        key: test-${{ matrix.os }}-${{ matrix.python-version }}-pip
 
     - name: TA binary *nix
       if: steps.cache.outputs.cache-hit != 'true'
@@ -387,34 +464,35 @@ jobs:
 
     - name: Installation - *nix
       run: |
-        python -m pip install --upgrade pip wheel
+        uv pip install --upgrade wheel
         export LD_LIBRARY_PATH=${HOME}/dependencies/lib:$LD_LIBRARY_PATH
         export TA_LIBRARY_PATH=${HOME}/dependencies/lib
         export TA_INCLUDE_PATH=${HOME}/dependencies/include
-        pip install -r requirements-dev.txt
-        pip install -e .
+        uv pip install -r requirements-dev.txt
+        uv pip install -e ft_client/
+        uv pip install -e .
 
     - name: Tests incl. ccxt compatibility tests
       env:
         CI_WEB_PROXY: http://152.67.78.211:13128
       run: |
-        pytest --random-order --longrun --durations 20 -n auto --dist loadscope
+        pytest --random-order --longrun --durations 20 -n auto
 
 
-  # Notify only once - when CI completes (and after deploy) in case it's successfull
+  # Notify only once - when CI completes (and after deploy) in case it's successful
   notify-complete:
     needs: [
-      build_linux,
+      build-linux,
       build-macos,
       build-windows,
       docs-check,
       mypy-version-check,
       pre-commit,
-      build_linux_online
+      build-linux-online
     ]
     runs-on: ubuntu-22.04
     # Discord notification can't handle schedule events
-    if: (github.event_name != 'schedule')
+    if: github.event_name != 'schedule' && github.repository == 'freqtrade/freqtrade'
     permissions:
       repository-projects: read
     steps:
@@ -437,16 +515,18 @@ jobs:
 
   build:
     name: "Build"
-    needs: [ build_linux, build-macos, build-windows, docs-check, mypy-version-check, pre-commit ]
+    needs: [ build-linux, build-macos, build-windows, docs-check, mypy-version-check, pre-commit ]
     runs-on: ubuntu-22.04
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
 
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: "3.11"
+        python-version: "3.12"
 
     - name: Build distribution
       run: |
@@ -461,53 +541,96 @@ jobs:
           dist
         retention-days: 10
 
-  deploy-pypi:
-    name: "Deploy to PyPI"
+    - name: Build Client distribution
+      run: |
+        pip install -U build
+        python -m build --sdist --wheel ft_client
+
+    - name: Upload artifacts 📦
+      uses: actions/upload-artifact@v4
+      with:
+        name: freqtrade-client-build
+        path: |
+          ft_client/dist
+        retention-days: 10
+
+  deploy-test-pypi:
+    name: "Publish Python 🐍 distribution 📦 to TestPyPI"
     needs: [ build ]
     runs-on: ubuntu-22.04
     if: (github.event_name == 'release')
     environment:
-      name: release
+      name: testpypi
+      url: https://test.pypi.org/p/freqtrade
+    permissions:
+      id-token: write
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+    - name: Download artifact  📦
+      uses: actions/download-artifact@v4
+      with:
+        pattern: freqtrade*-build
+        path: dist
+        merge-multiple: true
+
+    - name: Publish to PyPI (Test)
+      uses: pypa/gh-action-pypi-publish@v1.12.4
+      with:
+        repository-url: https://test.pypi.org/legacy/
+
+
+  deploy-pypi:
+    name: "Publish Python 🐍 distribution 📦 to PyPI"
+    needs: [ build ]
+    runs-on: ubuntu-22.04
+    if: (github.event_name == 'release')
+    environment:
+      name: pypi
       url: https://pypi.org/p/freqtrade
     permissions:
       id-token: write
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
 
     - name: Download artifact  📦
       uses: actions/download-artifact@v4
       with:
-        name: freqtrade-build
+        pattern: freqtrade*-build
         path: dist
-
-    - name: Publish to PyPI (Test)
-      uses: pypa/gh-action-pypi-publish@v1.8.11
-      with:
-        repository-url: https://test.pypi.org/legacy/
+        merge-multiple: true
 
     - name: Publish to PyPI
-      uses: pypa/gh-action-pypi-publish@v1.8.11
+      uses: pypa/gh-action-pypi-publish@v1.12.4
 
 
   deploy-docker:
-    needs: [ build_linux, build-macos, build-windows, docs-check, mypy-version-check, pre-commit ]
+    needs: [ build-linux, build-macos, build-windows, docs-check, mypy-version-check, pre-commit ]
     runs-on: ubuntu-22.04
 
     if: (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'release') && github.repository == 'freqtrade/freqtrade'
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
 
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: "3.11"
+        python-version: "3.12"
 
     - name: Extract branch name
-      shell: bash
-      run: echo "##[set-output name=branch;]$(echo ${GITHUB_REF##*/})"
-      id: extract_branch
+      id: extract-branch
+      run: |
+        echo "GITHUB_REF='${GITHUB_REF}'"
+        echo "branch=${GITHUB_REF##*/}" >> "$GITHUB_OUTPUT"
 
     - name: Dockerhub login
       env:
@@ -524,19 +647,21 @@ jobs:
           sudo systemctl restart docker
           docker version -f '{{.Server.Experimental}}'
 
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+
     - name: Set up Docker Buildx
       id: buildx
-      uses: crazy-max/ghaction-docker-buildx@v3.3.1
-      with:
-        buildx-version: latest
-        qemu-version: latest
+      uses: docker/setup-buildx-action@v3
 
     - name: Available platforms
-      run: echo ${{ steps.buildx.outputs.platforms }}
+      run: echo ${PLATFORMS}
+      env:
+        PLATFORMS: ${{ steps.buildx.outputs.platforms }}
 
     - name: Build and test and push docker images
       env:
-        BRANCH_NAME: ${{ steps.extract_branch.outputs.branch }}
+        BRANCH_NAME: ${{ steps.extract-branch.outputs.branch }}
       run: |
         build_helpers/publish_docker_multi.sh
 
@@ -551,11 +676,14 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
 
     - name: Extract branch name
-      shell: bash
-      run: echo "##[set-output name=branch;]$(echo ${GITHUB_REF##*/})"
-      id: extract_branch
+      id: extract-branch
+      run: |
+        echo "GITHUB_REF='${GITHUB_REF}'"
+        echo "branch=${GITHUB_REF##*/}" >> "$GITHUB_OUTPUT"
 
     - name: Dockerhub login
       env:
@@ -566,7 +694,7 @@ jobs:
 
     - name: Build and test and push docker images
       env:
-        BRANCH_NAME: ${{ steps.extract_branch.outputs.branch }}
+        BRANCH_NAME: ${{ steps.extract-branch.outputs.branch }}
         GHCR_USERNAME: ${{ github.actor }}
         GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
