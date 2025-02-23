@@ -5,7 +5,7 @@ import ccxt
 
 from freqtrade.constants import BuySell
 from freqtrade.enums import CandleType, MarginMode, PriceType, TradingMode
-from freqtrade.exceptions import DDosProtection, ExchangeError, OperationalException, TemporaryError
+from freqtrade.exceptions import DDosProtection, OperationalException, TemporaryError
 from freqtrade.exchange import Exchange
 from freqtrade.exchange.common import retrier
 from freqtrade.exchange.exchange_types import FtHas, OHLCVResponse
@@ -27,11 +27,11 @@ class Bitget(Exchange):
     _ft_has: FtHas = {
         "order_time_in_force": ["GTC", "FOK", "IOC"],
         "trades_has_history": True,
+        "funding_fee_candle_limit": 100,
     }
     _ft_has_futures: FtHas = {
         "mark_ohlcv_timeframe": "4h",
         "funding_fee_timeframe": "8h",
-        "funding_fee_candle_limit": 100,
         "stoploss_on_exchange": True,
         "stoploss_order_types": {"limit": "limit", "market": "market"},
         "stop_price_prop": "stopPrice",
@@ -187,23 +187,3 @@ class Bitget(Exchange):
             return 200
         # For other candle types, use the default or previously defined limit
         return super().ohlcv_candle_limit(timeframe, candle_type, since_ms)
-
-    def get_funding_fees(
-        self, pair: str, amount: float, is_short: bool, open_date: datetime
-    ) -> float:
-        if self.trading_mode == TradingMode.FUTURES:
-            try:
-                return self._fetch_and_calculate_funding_fees(pair, amount, is_short, open_date)
-            except ExchangeError:
-                logger.warning(f"Could not update funding fees for {pair}.")
-        return 0.0
-
-    def get_max_pair_stake_amount(self, pair: str, price: float, leverage: float = 1.0) -> float:
-        if self.trading_mode == TradingMode.SPOT:
-            return float("inf")  # Not actually inf, but this probably won't matter for SPOT
-
-        if pair not in self._leverage_tiers:
-            return 1.0
-
-        pair_tiers = self._leverage_tiers[pair]
-        return pair_tiers[-1]["maxNotional"] / leverage

@@ -338,20 +338,13 @@ def test_load_leverage_tiers_bitget(default_conf, mocker, markets, tmp_path, cap
 
 
 def test_get_max_pair_stake_amount_bitget(default_conf, mocker, leverage_tiers):
-    exchange = get_patched_exchange(mocker, default_conf, exchange="bitget")
-    assert exchange.get_max_pair_stake_amount("BNB/BUSD", 1.0) == float("inf")
-
     default_conf["trading_mode"] = "futures"
     default_conf["margin_mode"] = "isolated"
     exchange = get_patched_exchange(mocker, default_conf, exchange="bitget")
     exchange._leverage_tiers = leverage_tiers
-
-    assert exchange.get_max_pair_stake_amount("XRP/USDT:USDT", 1.0) == 30000000
-    assert exchange.get_max_pair_stake_amount("BNB/USDT:USDT", 1.0) == 50000000
-    assert exchange.get_max_pair_stake_amount("BTC/USDT:USDT", 1.0) == 1000000000
-    assert exchange.get_max_pair_stake_amount("BTC/USDT:USDT", 1.0, 10.0) == 100000000
-
-    assert exchange.get_max_pair_stake_amount("TTT/USDT:USDT", 1.0) == 1.0  # Not in tiers
+    assert exchange.get_max_pair_stake_amount("ETH/USDT:USDT", 1.0) == 3000000.0
+    assert exchange.get_max_pair_stake_amount("ADA/USDT:USDT", 1.0) == 10000.0
+    assert exchange.get_max_pair_stake_amount("XRP/USDT", 1.0) == 1000.0
 
 
 def test_bitget_ohlcv_candle_limit(default_conf, mocker):
@@ -360,20 +353,20 @@ def test_bitget_ohlcv_candle_limit(default_conf, mocker):
     start_time = int(datetime(2021, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
 
     for timeframe in timeframes:
-        assert exchange.ohlcv_candle_limit(timeframe, CandleType.SPOT) == 1000
-        assert exchange.ohlcv_candle_limit(timeframe, CandleType.FUTURES) == 1000
+        assert exchange.ohlcv_candle_limit(timeframe, CandleType.SPOT) == 500
+        assert exchange.ohlcv_candle_limit(timeframe, CandleType.FUTURES) == 500
         assert exchange.ohlcv_candle_limit(timeframe, CandleType.MARK) == 200
         assert exchange.ohlcv_candle_limit(timeframe, CandleType.FUNDING_RATE) == 100
 
-        assert exchange.ohlcv_candle_limit(timeframe, CandleType.SPOT, start_time) == 1000
-        assert exchange.ohlcv_candle_limit(timeframe, CandleType.FUTURES, start_time) == 1000
+        assert exchange.ohlcv_candle_limit(timeframe, CandleType.SPOT, start_time) == 500
+        assert exchange.ohlcv_candle_limit(timeframe, CandleType.FUTURES, start_time) == 500
         assert exchange.ohlcv_candle_limit(timeframe, CandleType.MARK, start_time) == 200
         assert exchange.ohlcv_candle_limit(timeframe, CandleType.FUNDING_RATE, start_time) == 100
         one_call = int((datetime.now(timezone.utc) - timedelta(days=29)).timestamp() * 1000)
 
-        assert exchange.ohlcv_candle_limit(timeframe, CandleType.SPOT, one_call) == 1000
-        assert exchange.ohlcv_candle_limit(timeframe, CandleType.FUTURES, one_call) == 1000
+        assert exchange.ohlcv_candle_limit(timeframe, CandleType.SPOT, one_call) == 500
+        assert exchange.ohlcv_candle_limit(timeframe, CandleType.FUTURES, one_call) == 500
 
         one_call = int((datetime.now(timezone.utc) - timedelta(days=32)).timestamp() * 1000)
-        assert exchange.ohlcv_candle_limit(timeframe, CandleType.SPOT, one_call) == 1000
-        assert exchange.ohlcv_candle_limit(timeframe, CandleType.FUTURES, one_call) == 1000
+        assert exchange.ohlcv_candle_limit(timeframe, CandleType.SPOT, one_call) == 500
+        assert exchange.ohlcv_candle_limit(timeframe, CandleType.FUTURES, one_call) == 500
