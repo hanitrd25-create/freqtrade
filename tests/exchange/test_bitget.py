@@ -353,20 +353,20 @@ def test_bitget_ohlcv_candle_limit(default_conf, mocker):
     start_time = int(datetime(2021, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
 
     for timeframe in timeframes:
-        assert exchange.ohlcv_candle_limit(timeframe, CandleType.SPOT) == 500
-        assert exchange.ohlcv_candle_limit(timeframe, CandleType.FUTURES) == 500
+        assert exchange.ohlcv_candle_limit(timeframe, CandleType.SPOT) == 200
+        assert exchange.ohlcv_candle_limit(timeframe, CandleType.FUTURES) == 200
         assert exchange.ohlcv_candle_limit(timeframe, CandleType.MARK) == 200
         assert exchange.ohlcv_candle_limit(timeframe, CandleType.FUNDING_RATE) == 100
 
-        assert exchange.ohlcv_candle_limit(timeframe, CandleType.SPOT, start_time) == 500
-        assert exchange.ohlcv_candle_limit(timeframe, CandleType.FUTURES, start_time) == 500
+        assert exchange.ohlcv_candle_limit(timeframe, CandleType.SPOT, start_time) == 200
+        assert exchange.ohlcv_candle_limit(timeframe, CandleType.FUTURES, start_time) == 200
         assert exchange.ohlcv_candle_limit(timeframe, CandleType.MARK, start_time) == 200
         assert exchange.ohlcv_candle_limit(timeframe, CandleType.FUNDING_RATE, start_time) == 100
         one_call = int((datetime.now(timezone.utc) - timedelta(days=29)).timestamp() * 1000)
 
-        assert exchange.ohlcv_candle_limit(timeframe, CandleType.SPOT, one_call) == 500
-        assert exchange.ohlcv_candle_limit(timeframe, CandleType.FUTURES, one_call) == 500
+        assert exchange.ohlcv_candle_limit(timeframe, CandleType.SPOT, one_call) == 200
+        assert exchange.ohlcv_candle_limit(timeframe, CandleType.FUTURES, one_call) == 200
 
         one_call = int((datetime.now(timezone.utc) - timedelta(days=32)).timestamp() * 1000)
-        assert exchange.ohlcv_candle_limit(timeframe, CandleType.SPOT, one_call) == 500
-        assert exchange.ohlcv_candle_limit(timeframe, CandleType.FUTURES, one_call) == 500
+        assert exchange.ohlcv_candle_limit(timeframe, CandleType.SPOT, one_call) == 200
+        assert exchange.ohlcv_candle_limit(timeframe, CandleType.FUTURES, one_call) == 200

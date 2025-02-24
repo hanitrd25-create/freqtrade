@@ -25,13 +25,16 @@ class Bitget(Exchange):
     """
 
     _ft_has: FtHas = {
+        # In ccxt, maxLimitForRecentEndpoint=1000, maxLimitForHistoryEndPoint=200,
+        # if paginate = True, will to use 1000, otherwise use 200
+        "ohlcv_candle_limit": 200,
         "order_time_in_force": ["GTC", "FOK", "IOC"],
         "trades_has_history": True,
-        "funding_fee_candle_limit": 100,
     }
     _ft_has_futures: FtHas = {
         "mark_ohlcv_timeframe": "4h",
         "funding_fee_timeframe": "8h",
+        "funding_fee_candle_limit": 100,
         "stoploss_on_exchange": True,
         "stoploss_order_types": {"limit": "limit", "market": "market"},
         "stop_price_prop": "stopPrice",

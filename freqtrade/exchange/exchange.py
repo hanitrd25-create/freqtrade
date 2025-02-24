@@ -474,7 +474,7 @@ class Exchange:
             ccxt_val = 500
         fallback_val = self._ft_has.get("ohlcv_candle_limit", ccxt_val)
         if candle_type == CandleType.FUNDING_RATE:
-            fallback_val = self._ft_has.get("funding_fee_candle_limit", fallback_val)
+            fallback_val = self._ft_has_futures.get("funding_fee_candle_limit", fallback_val)
         return int(
             self._ft_has.get("ohlcv_candle_limit_per_timeframe", {}).get(
                 timeframe, str(fallback_val)
