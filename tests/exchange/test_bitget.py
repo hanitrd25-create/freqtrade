@@ -348,6 +348,8 @@ def test_get_max_pair_stake_amount_bitget(default_conf, mocker, leverage_tiers):
 
 
 def test_bitget_ohlcv_candle_limit(default_conf, mocker):
+    default_conf["trading_mode"] = "futures"
+    default_conf["margin_mode"] = "isolated"
     exchange = get_patched_exchange(mocker, default_conf, exchange="bitget")
     timeframes = ("1m", "5m", "1h")
     start_time = int(datetime(2021, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
