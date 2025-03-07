@@ -109,6 +109,9 @@ class IResolver:
                 if enum_failed:
                     return iter([None])
 
+            # fix "Can't pickle: import of module failed" when modules are defined in user_data/freqaimodels
+            sys.modules[module_name] = module
+
             def is_valid_class(obj):
                 try:
                     return (
