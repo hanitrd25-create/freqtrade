@@ -40,14 +40,11 @@ def setup_logging_pre() -> None:
     logging handlers after the real initialization, because we don't know which
     ones the user desires beforehand.
     """
-    rh = FtRichHandler(console=error_console)
-    rh.setFormatter(Formatter("%(message)s"))
     logging.basicConfig(
         level=logging.INFO,
         format=LOGFORMAT,
         handlers=[
             # FTStdErrStreamHandler(),
-            rh,
             bufferHandler,
         ],
     )
@@ -121,6 +118,10 @@ def setup_logging(config: Config) -> None:
                 )
             handler_rf.setFormatter(Formatter(LOGFORMAT))
             logging.root.addHandler(handler_rf)
+    else:
+        rh = FtRichHandler(console=error_console)
+        rh.setFormatter(Formatter("%(message)s"))
+        logging.root.addHandler(rh)
 
     logging.root.setLevel(logging.INFO if verbosity < 1 else logging.DEBUG)
     set_loggers(verbosity, config.get("api_server", {}).get("verbosity", "info"))
