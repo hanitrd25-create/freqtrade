@@ -44,6 +44,7 @@ from freqtrade.rpc.api_server.api_schemas import (
     Profit,
     ResultMsg,
     ShowConfig,
+    StartEntryPayload,
     Stats,
     StatusMsg,
     StrategyListResponse,
@@ -326,6 +327,11 @@ def stop(rpc: RPC = Depends(get_rpc)):
 @router.post("/stopbuy", response_model=StatusMsg, tags=["botcontrol"])
 def stop_buy(rpc: RPC = Depends(get_rpc)):
     return rpc._rpc_stopentry()
+
+
+@router.post("/startentry", response_model=StatusMsg, tags=["trading"])
+def start_entry(payload: StartEntryPayload, rpc: RPC = Depends(get_rpc)):
+    return rpc._rpc_startentry(payload.max_open_trades)
 
 
 @router.post("/reload_config", response_model=StatusMsg, tags=["botcontrol"])
