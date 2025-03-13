@@ -552,6 +552,39 @@ def test_api_stopentry(botclient):
     assert ftbot.config["max_open_trades"] == 0
 
 
+def test_api_startentry(botclient, fee):
+    ftbot, client = botclient
+
+    # test trade slots available
+    ftbot.config["max_open_trades"] = 0
+    assert ftbot.config["max_open_trades"] == 0
+
+    rc = client_post(client, f"{BASE_URI}/startentry")
+    assert_response(rc)
+    assert rc.json() == {
+        "status": "New entries are allowed. Current maximum open trades is set to 1."
+    }
+    assert ftbot.config["max_open_trades"] == 1
+
+    # test all trade slots used
+    ftbot.config["max_open_trades"] = 10
+    create_mock_trades(fee, is_short=False)
+
+    ftbot.config["max_open_trades"] = 0
+    rc = client_post(client, f"{BASE_URI}/startentry", data={"max_open_trades": 4})
+    assert_response(rc)
+    expected_message = (
+        "All trade slots are currently in use. "
+        "New entries will occur only after some trades are closed. "
+        "Open trades: 4, Maximum allowed open trades: 4."
+    )
+    assert rc.json() == {"status": expected_message}
+
+    # test 0 value provided
+    rc = client_post(client, f"{BASE_URI}/startentry", data={"max_open_trades": 0})
+    assert_response(rc, 422)
+
+
 def test_api_balance(botclient, mocker, rpc_balance, tickers):
     ftbot, client = botclient
 
