@@ -414,6 +414,16 @@ class ForceExitPayload(BaseModel):
     amount: float | None = None
 
 
+class StartEntryPayload(BaseModel):
+    max_open_trades: int = 1
+
+    @model_validator(mode="after")
+    def validate_max_open_trades(self):
+        if self.max_open_trades <= 0:
+            raise ValueError("max_open_trades must be over 0 in a start entry context")
+        return self
+
+
 class BlacklistPayload(BaseModel):
     blacklist: list[str]
 
