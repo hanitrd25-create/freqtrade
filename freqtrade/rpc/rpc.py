@@ -860,6 +860,29 @@ class RPC:
 
         return {"status": "No more entries will occur from now. Run /reload_config to reset."}
 
+    def _rpc_startentry(self, max_open_trades: int) -> dict[str, str]:
+        """
+        Handler to start entries, according to specified max_open_trades.
+        """
+        if self._freqtrade.state == State.RUNNING:
+            self._freqtrade.config["max_open_trades"] = max_open_trades
+            self._freqtrade.strategy.max_open_trades = max_open_trades
+
+        open_trades_count = Trade.get_open_trade_count()
+
+        if open_trades_count >= max_open_trades:
+            message = (
+                f"All trade slots are currently in use. New entries will occur only "
+                f"after some trades are closed. "
+                f"Open trades: {open_trades_count}, Maximum allowed open trades: {max_open_trades}."
+            )
+        else:
+            message = (
+                f"New entries are allowed. Current maximum open trades is set to {max_open_trades}."
+            )
+
+        return {"status": message}
+
     def _rpc_reload_trade_from_exchange(self, trade_id: int) -> dict[str, str]:
         """
         Handler for reload_trade_from_exchange.
