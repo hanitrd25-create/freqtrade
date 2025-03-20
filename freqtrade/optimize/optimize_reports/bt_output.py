@@ -30,6 +30,7 @@ def _get_line_header(
         f"Tot Profit {stake_currency}",
         "Tot Profit %",
         "Avg Duration",
+        "Profit Factor",
         "Win  Draw  Loss  Win%",
     ]
 
@@ -63,6 +64,7 @@ def text_table_bt_results(
             f"{t['profit_total_abs']:.{decimals_per_coin(stake_currency)}f}",
             t["profit_total_pct"],
             t["duration_avg"],
+            round(t["profit_factor"], 2) if "profit_factor" in t else "N/A",
             generate_wins_draws_losses(t["wins"], t["draws"], t["losses"]),
         ]
         for t in pair_results
@@ -114,6 +116,7 @@ def text_table_tags(
             f"{t['profit_total_abs']:.{decimals_per_coin(stake_currency)}f}",
             t["profit_total_pct"],
             t.get("duration_avg"),
+            round(t["profit_factor"], 2) if "profit_factor" in t else "N/A",
             generate_wins_draws_losses(t["wins"], t["draws"], t["losses"]),
         ]
         for t in tag_results
@@ -156,10 +159,16 @@ def text_table_strategy(strategy_results, stake_currency: str, title: str):
     :param strategy_results: Dict of <Strategyname: DataFrame> containing results for all strategies
     :param stake_currency: stake-currency - used to correctly name headers
     """
-    headers = _get_line_header("Strategy", stake_currency, "Trades")
-    # _get_line_header() is also used for per-pair summary. Per-pair drawdown is mostly useless
-    # therefore we slip this column in only for strategy summary here.
-    headers.append("Drawdown")
+    headers = [
+        "Strategy",
+        "Trades",
+        "Avg Profit %",
+        f"Tot Profit {stake_currency}",
+        "Tot Profit %",
+        "Avg Duration",
+        "Win  Draw  Loss  Win%",
+        "Drawdown",
+    ]
 
     # Align drawdown string on the center two space separator.
     if "max_drawdown_account" in strategy_results[0]:

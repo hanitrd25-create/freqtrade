@@ -78,6 +78,9 @@ def _generate_result_line(
     profit_sum = result["profit_ratio"].sum()
     # (end-capital - starting capital) / starting capital
     profit_total = result["profit_abs"].sum() / starting_balance
+    winning_profit = result.loc[result["profit_abs"] > 0, "profit_abs"].sum()
+    losing_profit = result.loc[result["profit_abs"] < 0, "profit_abs"].sum()
+    profit_factor = winning_profit / abs(losing_profit) if losing_profit else 0.0
 
     return {
         "key": first_column,
@@ -102,6 +105,7 @@ def _generate_result_line(
         # 'duration_min': str(timedelta(
         #                     minutes=round(result['trade_duration'].min()))
         #                     ) if not result.empty else '0:00',
+        "profit_factor": round(profit_factor, 8),
         "wins": len(result[result["profit_abs"] > 0]),
         "draws": len(result[result["profit_abs"] == 0]),
         "losses": len(result[result["profit_abs"] < 0]),
