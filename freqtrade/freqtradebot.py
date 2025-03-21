@@ -1219,7 +1219,7 @@ class FreqtradeBot(LoggingMixin):
             "trade_id": trade.id,
             "type": RPCMessageType.ENTRY_FILL if fill else RPCMessageType.ENTRY,
             "buy_tag": trade.enter_tag,
-            "enter_tag": trade.enter_tag,
+            "enter_tag": order.ft_order_tag,
             "exchange": trade.exchange.capitalize(),
             "pair": trade.pair,
             "leverage": trade.leverage if trade.leverage else None,
