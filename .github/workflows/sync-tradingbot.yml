@@ -1,0 +1,35 @@
+name: Sync Tradingbot Fork with Freqtrade Upstream
+
+on:
+  schedule:
+    # Läuft jeden Tag um 02:00 UTC
+    - cron: '0 2 * * *'
+  # Erlaubt manuelle Ausführung des Workflows über die GitHub UI
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    name: Sync fork with upstream
+
+    steps:
+      # Repository auschecken mit PAT für Repository-Zugriff
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          ref: development  # Ihr lokaler Branch ist development
+          token: ${{ secrets.PAT }}
+
+      # Upstream-Repository als Remote hinzufügen mit PAT
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://x-access-token:${{ secrets.PAT }}@github.com/freqtrade/freqtrade.git
+          git fetch upstream
+
+      # Upstream-Änderungen vom stable Branch holen und mergen
+      - name: Sync fork with upstream
+        run: |
+          git checkout development  # Bleiben Sie auf Ihrem lokalen development Branch
+          git merge upstream/stable  # Holen Sie Änderungen vom stable Branch des Original-Repos
+          git push origin development
