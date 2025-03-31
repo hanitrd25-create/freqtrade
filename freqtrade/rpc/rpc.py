@@ -442,7 +442,7 @@ class RPC:
 
     def _rpc_trade_history(self, limit: int, offset: int = 0, order_by_id: bool = False) -> dict:
         """Returns the X last trades"""
-        order_by: Any = Trade.id if order_by_id else Trade.close_date.desc()
+        order_by: Any = Trade.id.desc() if order_by_id else Trade.close_date.desc()
         if limit:
             trades = Trade.session.scalars(
                 Trade.get_trades_query([Trade.is_open.is_(False)])
