@@ -1,7 +1,10 @@
+import json
 import re
+import shutil
 from datetime import timedelta
 from pathlib import Path
 from shutil import copyfile
+from zipfile import ZipFile
 
 import joblib
 import pandas as pd
@@ -26,8 +29,7 @@ from freqtrade.optimize.optimize_reports import (
     generate_strategy_comparison,
     generate_trading_stats,
     show_sorted_pairlist,
-    store_backtest_analysis_results,
-    store_backtest_stats,
+    store_backtest_results,
     text_table_bt_results,
     text_table_strategy,
 )
@@ -40,7 +42,7 @@ from freqtrade.optimize.optimize_reports.optimize_reports import (
 from freqtrade.resolvers.strategy_resolver import StrategyResolver
 from freqtrade.util import dt_ts
 from freqtrade.util.datetime_helpers import dt_from_ts, dt_utc
-from tests.conftest import CURRENT_TEST_STRATEGY
+from tests.conftest import CURRENT_TEST_STRATEGY, log_has_re
 from tests.data.test_history import _clean_test_file
 
 
@@ -59,31 +61,43 @@ def _backup_file(file: Path, copy_file: bool = False) -> None:
             copyfile(file_swp, file)
 
 
-def test_text_table_bt_results():
+def test_text_table_bt_results(capsys):
     results = pd.DataFrame(
         {
             "pair": ["ETH/BTC", "ETH/BTC", "ETH/BTC"],
             "profit_ratio": [0.1, 0.2, -0.05],
             "profit_abs": [0.2, 0.4, -0.1],
             "trade_duration": [10, 30, 20],
+            "close_date": [
+                dt_utc(2017, 11, 14, 21, 35, 00),
+                dt_utc(2017, 11, 14, 22, 10, 00),
+                dt_utc(2017, 11, 14, 22, 43, 00),
+            ],
         }
     )
 
-    result_str = (
-        "|    Pair |   Entries |   Avg Profit % |   Tot Profit BTC |   "
-        "Tot Profit % |   Avg Duration |   Win  Draw  Loss  Win% |\n"
-        "|---------+-----------+----------------+------------------+"
-        "----------------+----------------+-------------------------|\n"
-        "| ETH/BTC |         3 |           8.33 |       0.50000000 |          "
-        "12.50 |        0:20:00 |     2     0     1  66.7 |\n"
-        "|   TOTAL |         3 |           8.33 |       0.50000000 |          "
-        "12.50 |        0:20:00 |     2     0     1  66.7 |"
-    )
-
     pair_results = generate_pair_metrics(
-        ["ETH/BTC"], stake_currency="BTC", starting_balance=4, results=results
+        ["ETH/BTC"],
+        stake_currency="BTC",
+        starting_balance=4,
+        results=results,
+        min_date=dt_from_ts(1510688220),
+        max_date=dt_from_ts(1510700340),
     )
-    assert text_table_bt_results(pair_results, stake_currency="BTC") == result_str
+    text_table_bt_results(pair_results, stake_currency="BTC", title="title")
+    text = capsys.readouterr().out
+    re.search(
+        r".* Pair .* Trades .* Avg Profit % .* Tot Profit BTC .* Tot Profit % .* "
+        r"Avg Duration .* Win  Draw  Loss  Win% .*",
+        text,
+    )
+    re.search(
+        r".* ETH/BTC .* 3 .* 8.33 .* 0.50000000 .* 12.50 .* 0:20:00 .* 2     0     1  66.7 .*",
+        text,
+    )
+    re.search(
+        r".* TOTAL .* 3 .* 8.33 .* 0.50000000 .* 12.50 .* 0:20:00 .* 2     0     1  66.7 .*", text
+    )
 
 
 def test_generate_backtest_stats(default_conf, testdatadir, tmp_path):
@@ -116,10 +130,10 @@ def test_generate_backtest_stats(default_conf, testdatadir, tmp_path):
                     "is_short": [False, False, False, False],
                     "stake_amount": [0.01, 0.01, 0.01, 0.01],
                     "exit_reason": [
-                        ExitType.ROI,
-                        ExitType.STOP_LOSS,
-                        ExitType.ROI,
-                        ExitType.FORCE_EXIT,
+                        ExitType.ROI.value,
+                        ExitType.STOP_LOSS.value,
+                        ExitType.ROI.value,
+                        ExitType.FORCE_EXIT.value,
                     ],
                 }
             ),
@@ -183,10 +197,10 @@ def test_generate_backtest_stats(default_conf, testdatadir, tmp_path):
                     "is_short": [False, False, False, False],
                     "stake_amount": [0.01, 0.01, 0.01, 0.01],
                     "exit_reason": [
-                        ExitType.ROI,
-                        ExitType.ROI,
-                        ExitType.STOP_LOSS,
-                        ExitType.FORCE_EXIT,
+                        ExitType.ROI.value,
+                        ExitType.ROI.value,
+                        ExitType.STOP_LOSS.value,
+                        ExitType.FORCE_EXIT.value,
                     ],
                 }
             ),
@@ -224,16 +238,18 @@ def test_generate_backtest_stats(default_conf, testdatadir, tmp_path):
     filename_last = tmp_path / LAST_BT_RESULT_FN
     _backup_file(filename_last, copy_file=True)
     assert not filename.is_file()
+    default_conf["exportfilename"] = filename
 
-    store_backtest_stats(filename, stats, "2022_01_01_15_05_13")
+    store_backtest_results(default_conf, stats, "2022_01_01_15_05_13")
 
-    # get real Filename (it's btresult-<date>.json)
+    # get real Filename (it's btresult-<date>.zip)
     last_fn = get_latest_backtest_filename(filename_last.parent)
-    assert re.match(r"btresult-.*\.json", last_fn)
+    assert re.match(r"btresult-.*\.zip", last_fn)
 
     filename1 = tmp_path / last_fn
     assert filename1.is_file()
-    content = filename1.read_text()
+
+    content = json.dumps(load_backtest_stats(filename1))
     assert "max_drawdown_account" in content
     assert "strategy" in content
     assert "pairlist" in content
@@ -244,79 +260,132 @@ def test_generate_backtest_stats(default_conf, testdatadir, tmp_path):
     filename1.unlink()
 
 
-def test_store_backtest_stats(testdatadir, mocker):
+def test_store_backtest_results(testdatadir, mocker):
     dump_mock = mocker.patch("freqtrade.optimize.optimize_reports.bt_storage.file_dump_json")
-
+    zip_mock = mocker.patch("freqtrade.optimize.optimize_reports.bt_storage.ZipFile")
     data = {"metadata": {}, "strategy": {}, "strategy_comparison": []}
-    store_backtest_stats(testdatadir, data, "2022_01_01_15_05_13")
+    store_backtest_results(
+        {"exportfilename": testdatadir, "original_config": {}}, data, "2022_01_01_15_05_13"
+    )
 
-    assert dump_mock.call_count == 3
+    assert dump_mock.call_count == 2
+    assert zip_mock.call_count == 1
     assert isinstance(dump_mock.call_args_list[0][0][0], Path)
     assert str(dump_mock.call_args_list[0][0][0]).startswith(str(testdatadir / "backtest-result"))
 
     dump_mock.reset_mock()
+    zip_mock.reset_mock()
     filename = testdatadir / "testresult.json"
-    store_backtest_stats(filename, data, "2022_01_01_15_05_13")
-    assert dump_mock.call_count == 3
+    store_backtest_results(
+        {"exportfilename": filename, "original_config": {}}, data, "2022_01_01_15_05_13"
+    )
+    assert dump_mock.call_count == 2
+    assert zip_mock.call_count == 1
     assert isinstance(dump_mock.call_args_list[0][0][0], Path)
     # result will be testdatadir / testresult-<timestamp>.json
     assert str(dump_mock.call_args_list[0][0][0]).startswith(str(testdatadir / "testresult"))
 
 
-def test_store_backtest_stats_real(tmp_path):
+def test_store_backtest_results_real(tmp_path, caplog):
     data = {"metadata": {}, "strategy": {}, "strategy_comparison": []}
-    store_backtest_stats(tmp_path, data, "2022_01_01_15_05_13")
+    config = {
+        "exportfilename": tmp_path,
+        "original_config": {},
+    }
+    store_backtest_results(
+        config, data, "2022_01_01_15_05_13", strategy_files={"DefStrat": "NoFile"}
+    )
+    assert log_has_re(r"Strategy file .* does not exist\. Skipping\.", caplog)
 
-    assert (tmp_path / "backtest-result-2022_01_01_15_05_13.json").is_file()
+    zip_file = tmp_path / "backtest-result-2022_01_01_15_05_13.zip"
+    assert zip_file.is_file()
     assert (tmp_path / "backtest-result-2022_01_01_15_05_13.meta.json").is_file()
     assert not (tmp_path / "backtest-result-2022_01_01_15_05_13_market_change.feather").is_file()
+    with ZipFile(zip_file, "r") as zipf:
+        assert "backtest-result-2022_01_01_15_05_13.json" in zipf.namelist()
+        assert "backtest-result-2022_01_01_15_05_13_market_change.feather" not in zipf.namelist()
     assert (tmp_path / LAST_BT_RESULT_FN).is_file()
     fn = get_latest_backtest_filename(tmp_path)
-    assert fn == "backtest-result-2022_01_01_15_05_13.json"
+    assert fn == "backtest-result-2022_01_01_15_05_13.zip"
 
-    store_backtest_stats(tmp_path, data, "2024_01_01_15_05_25", market_change_data=pd.DataFrame())
-    assert (tmp_path / "backtest-result-2024_01_01_15_05_25.json").is_file()
+    strategy_test_dir = Path(__file__).parent.parent / "strategy" / "strats"
+
+    shutil.copy(strategy_test_dir / "strategy_test_v3.py", tmp_path)
+    params_file = tmp_path / "strategy_test_v3.json"
+    with params_file.open("w") as f:
+        f.write("""{"strategy_name": "TurtleStrategyX5","params":{}}""")
+
+    store_backtest_results(
+        config,
+        data,
+        "2024_01_01_15_05_25",
+        market_change_data=pd.DataFrame(),
+        strategy_files={"DefStrat": str(tmp_path / "strategy_test_v3.py")},
+    )
+    zip_file = tmp_path / "backtest-result-2024_01_01_15_05_25.zip"
+    assert zip_file.is_file()
     assert (tmp_path / "backtest-result-2024_01_01_15_05_25.meta.json").is_file()
-    assert (tmp_path / "backtest-result-2024_01_01_15_05_25_market_change.feather").is_file()
+    assert not (tmp_path / "backtest-result-2024_01_01_15_05_25_market_change.feather").is_file()
+
+    with ZipFile(zip_file, "r") as zipf:
+        assert "backtest-result-2024_01_01_15_05_25.json" in zipf.namelist()
+        assert "backtest-result-2024_01_01_15_05_25_market_change.feather" in zipf.namelist()
+        assert "backtest-result-2024_01_01_15_05_25_config.json" in zipf.namelist()
+        # strategy file is copied to the zip file
+        assert "backtest-result-2024_01_01_15_05_25_DefStrat.py" in zipf.namelist()
+        # compare the content of the strategy file
+        with zipf.open("backtest-result-2024_01_01_15_05_25_DefStrat.py") as strategy_file:
+            strategy_content = strategy_file.read()
+            with (strategy_test_dir / "strategy_test_v3.py").open("rb") as original_file:
+                original_content = original_file.read()
+                assert strategy_content == original_content
+        assert "backtest-result-2024_01_01_15_05_25_DefStrat.py" in zipf.namelist()
+        with zipf.open("backtest-result-2024_01_01_15_05_25_DefStrat.json") as pf:
+            params_content = pf.read()
+            with params_file.open("rb") as original_file:
+                original_content = original_file.read()
+                assert params_content == original_content
+
     assert (tmp_path / LAST_BT_RESULT_FN).is_file()
 
     # Last file reference should be updated
     fn = get_latest_backtest_filename(tmp_path)
-    assert fn == "backtest-result-2024_01_01_15_05_25.json"
-
-
-def test_store_backtest_candles(testdatadir, mocker):
-    dump_mock = mocker.patch("freqtrade.optimize.optimize_reports.bt_storage.file_dump_joblib")
-
-    candle_dict = {"DefStrat": {"UNITTEST/BTC": pd.DataFrame()}}
-
-    # mock directory exporting
-    store_backtest_analysis_results(testdatadir, candle_dict, {}, "2022_01_01_15_05_13")
-
-    assert dump_mock.call_count == 2
-    assert isinstance(dump_mock.call_args_list[0][0][0], Path)
-    assert str(dump_mock.call_args_list[0][0][0]).endswith("_signals.pkl")
-
-    dump_mock.reset_mock()
-    # mock file exporting
-    filename = Path(testdatadir / "testresult")
-    store_backtest_analysis_results(filename, candle_dict, {}, "2022_01_01_15_05_13")
-    assert dump_mock.call_count == 2
-    assert isinstance(dump_mock.call_args_list[0][0][0], Path)
-    # result will be testdatadir / testresult-<timestamp>_signals.pkl
-    assert str(dump_mock.call_args_list[0][0][0]).endswith("_signals.pkl")
-    dump_mock.reset_mock()
+    assert fn == "backtest-result-2024_01_01_15_05_25.zip"
 
 
 def test_write_read_backtest_candles(tmp_path):
     candle_dict = {"DefStrat": {"UNITTEST/BTC": pd.DataFrame()}}
+    bt_results = {"metadata": {}, "strategy": {}, "strategy_comparison": []}
 
+    mock_conf = {
+        "exportfilename": tmp_path,
+        "export": "signals",
+        "runmode": "backtest",
+        "original_config": {},
+    }
     # test directory exporting
     sample_date = "2022_01_01_15_05_13"
-    store_backtest_analysis_results(tmp_path, candle_dict, {}, sample_date)
-    stored_file = tmp_path / f"backtest-result-{sample_date}_signals.pkl"
-    with stored_file.open("rb") as scp:
-        pickled_signal_candles = joblib.load(scp)
+    data = {
+        "signals": candle_dict,
+        "rejected": {},
+        "exited": {},
+    }
+    store_backtest_results(mock_conf, bt_results, sample_date, analysis_results=data)
+    stored_file = tmp_path / f"backtest-result-{sample_date}.zip"
+    signals_pkl = f"backtest-result-{sample_date}_signals.pkl"
+    rejected_pkl = f"backtest-result-{sample_date}_rejected.pkl"
+    exited_pkl = f"backtest-result-{sample_date}_exited.pkl"
+    assert not (tmp_path / signals_pkl).is_file()
+    assert stored_file.is_file()
+
+    with ZipFile(stored_file, "r") as zipf:
+        assert signals_pkl in zipf.namelist()
+        assert rejected_pkl in zipf.namelist()
+        assert exited_pkl in zipf.namelist()
+
+        # open and read the file
+        with zipf.open(signals_pkl) as scp:
+            pickled_signal_candles = joblib.load(scp)
 
     assert pickled_signal_candles.keys() == candle_dict.keys()
     assert pickled_signal_candles["DefStrat"].keys() == pickled_signal_candles["DefStrat"].keys()
@@ -328,15 +397,27 @@ def test_write_read_backtest_candles(tmp_path):
 
     # test file exporting
     filename = tmp_path / "testresult"
-    store_backtest_analysis_results(filename, candle_dict, {}, sample_date)
-    stored_file = tmp_path / f"testresult-{sample_date}_signals.pkl"
-    with stored_file.open("rb") as scp:
-        pickled_signal_candles = joblib.load(scp)
+    mock_conf["exportfilename"] = filename
+    store_backtest_results(mock_conf, bt_results, sample_date, analysis_results=data)
+    stored_file = tmp_path / f"testresult-{sample_date}.zip"
+    signals_pkl = f"testresult-{sample_date}_signals.pkl"
+    rejected_pkl = f"testresult-{sample_date}_rejected.pkl"
+    exited_pkl = f"testresult-{sample_date}_exited.pkl"
+    assert not (tmp_path / signals_pkl).is_file()
+    assert stored_file.is_file()
 
-    assert pickled_signal_candles.keys() == candle_dict.keys()
-    assert pickled_signal_candles["DefStrat"].keys() == pickled_signal_candles["DefStrat"].keys()
-    assert pickled_signal_candles["DefStrat"]["UNITTEST/BTC"].equals(
-        pickled_signal_candles["DefStrat"]["UNITTEST/BTC"]
+    with ZipFile(stored_file, "r") as zipf:
+        assert signals_pkl in zipf.namelist()
+        assert rejected_pkl in zipf.namelist()
+        assert exited_pkl in zipf.namelist()
+
+        with zipf.open(signals_pkl) as scp:
+            pickled_signal_candles2 = joblib.load(scp)
+
+    assert pickled_signal_candles2.keys() == candle_dict.keys()
+    assert pickled_signal_candles2["DefStrat"].keys() == pickled_signal_candles2["DefStrat"].keys()
+    assert pickled_signal_candles2["DefStrat"]["UNITTEST/BTC"].equals(
+        pickled_signal_candles2["DefStrat"]["UNITTEST/BTC"]
     )
 
     _clean_test_file(stored_file)
@@ -349,6 +430,10 @@ def test_generate_pair_metrics():
             "profit_ratio": [0.1, 0.2],
             "profit_abs": [0.2, 0.4],
             "trade_duration": [10, 30],
+            "close_date": [
+                dt_utc(2017, 11, 14, 21, 35, 00),
+                dt_utc(2017, 11, 14, 22, 10, 00),
+            ],
             "wins": [2, 0],
             "draws": [0, 0],
             "losses": [0, 0],
@@ -356,7 +441,12 @@ def test_generate_pair_metrics():
     )
 
     pair_results = generate_pair_metrics(
-        ["ETH/BTC"], stake_currency="BTC", starting_balance=2, results=results
+        ["ETH/BTC"],
+        stake_currency="BTC",
+        starting_balance=2,
+        results=results,
+        min_date=dt_from_ts(1510688220),
+        max_date=dt_from_ts(1510700340),
     )
     assert isinstance(pair_results, list)
     assert len(pair_results) == 2
@@ -434,37 +524,52 @@ def test_calc_streak(testdatadir):
     assert calc_streak(bt_data) == (7, 18)
 
 
-def test_text_table_exit_reason():
+def test_text_table_exit_reason(capsys):
     results = pd.DataFrame(
         {
             "pair": ["ETH/BTC", "ETH/BTC", "ETH/BTC"],
             "profit_ratio": [0.1, 0.2, -0.1],
             "profit_abs": [0.2, 0.4, -0.2],
             "trade_duration": [10, 30, 10],
+            "close_date": [
+                dt_utc(2017, 11, 14, 21, 35, 00),
+                dt_utc(2017, 11, 14, 22, 10, 00),
+                dt_utc(2017, 11, 14, 22, 43, 00),
+            ],
             "wins": [2, 0, 0],
             "draws": [0, 0, 0],
             "losses": [0, 0, 1],
-            "exit_reason": [ExitType.ROI, ExitType.ROI, ExitType.STOP_LOSS],
+            "exit_reason": [ExitType.ROI.value, ExitType.ROI.value, ExitType.STOP_LOSS.value],
         }
     )
 
-    result_str = (
-        "|   Exit Reason |   Exits |   Avg Profit % |   Tot Profit BTC |   Tot Profit % |"
-        "   Avg Duration |   Win  Draw  Loss  Win% |\n"
-        "|---------------+---------+----------------+------------------+----------------+"
-        "----------------+-------------------------|\n"
-        "|           roi |       2 |          15.00 |       0.60000000 |           2.73 |"
-        "        0:20:00 |     2     0     0   100 |\n"
-        "|     stop_loss |       1 |         -10.00 |      -0.20000000 |          -0.91 |"
-        "        0:10:00 |     0     0     1     0 |\n"
-        "|         TOTAL |       3 |           6.67 |       0.40000000 |           1.82 |"
-        "        0:17:00 |     2     0     1  66.7 |"
-    )
-
     exit_reason_stats = generate_tag_metrics(
-        "exit_reason", starting_balance=22, results=results, skip_nan=False
+        "exit_reason",
+        starting_balance=22,
+        results=results,
+        min_date=dt_from_ts(1510688220),
+        max_date=dt_from_ts(1510700340),
+        skip_nan=False,
     )
-    assert text_table_tags("exit_tag", exit_reason_stats, "BTC") == result_str
+    text_table_tags("exit_tag", exit_reason_stats, "BTC")
+    text = capsys.readouterr().out
+
+    assert re.search(
+        r".* Exit Reason .* Exits .* Avg Profit % .* Tot Profit BTC .* Tot Profit % .* "
+        r"Avg Duration .* Win  Draw  Loss  Win% .*",
+        text,
+    )
+    assert re.search(
+        r".* roi .* 2 .* 15.0 .* 0.60000000 .* 2.73 .* 0:20:00 .* 2     0     0   100 .*",
+        text,
+    )
+    assert re.search(
+        r".* stop_loss .* 1 .* -10.0 .* -0.20000000 .* -0.91 .* 0:10:00 .* 0     0     1     0 .*",
+        text,
+    )
+    assert re.search(
+        r".* TOTAL .* 3 .* 6.67 .* 0.40000000 .* 1.82 .* 0:17:00 .* 2     0     1  66.7 .*", text
+    )
 
 
 def test_generate_sell_reason_stats():
@@ -474,6 +579,11 @@ def test_generate_sell_reason_stats():
             "profit_ratio": [0.1, 0.2, -0.1],
             "profit_abs": [0.2, 0.4, -0.2],
             "trade_duration": [10, 30, 10],
+            "close_date": [
+                dt_utc(2017, 11, 14, 21, 35, 00),
+                dt_utc(2017, 11, 14, 22, 10, 00),
+                dt_utc(2017, 11, 14, 22, 43, 00),
+            ],
             "wins": [2, 0, 0],
             "draws": [0, 0, 0],
             "losses": [0, 0, 1],
@@ -482,7 +592,12 @@ def test_generate_sell_reason_stats():
     )
 
     exit_reason_stats = generate_tag_metrics(
-        "exit_reason", starting_balance=22, results=results, skip_nan=False
+        "exit_reason",
+        starting_balance=22,
+        results=results,
+        min_date=dt_from_ts(1510688220),
+        max_date=dt_from_ts(1510700340),
+        skip_nan=False,
     )
     roi_result = exit_reason_stats[0]
     assert roi_result["key"] == "roi"
@@ -502,39 +617,42 @@ def test_generate_sell_reason_stats():
     assert stop_result["profit_mean_pct"] == round(stop_result["profit_mean"] * 100, 2)
 
 
-def test_text_table_strategy(testdatadir):
+def test_text_table_strategy(testdatadir, capsys):
     filename = testdatadir / "backtest_results/backtest-result_multistrat.json"
     bt_res_data = load_backtest_stats(filename)
 
     bt_res_data_comparison = bt_res_data.pop("strategy_comparison")
 
-    result_str = (
-        "|       Strategy |   Entries |   Avg Profit % |   Tot Profit BTC |"
-        "   Tot Profit % |   Avg Duration |   Win  Draw  Loss  Win% |              Drawdown |\n"
-        "|----------------+-----------+----------------+------------------+"
-        "----------------+----------------+-------------------------+-----------------------|\n"
-        "| StrategyTestV2 |       179 |           0.08 |       0.02608550 |"
-        "         260.85 |        3:40:00 |   170     0     9  95.0 | 0.00308222 BTC  8.67% |\n"
-        "|   TestStrategy |       179 |           0.08 |       0.02608550 |"
-        "         260.85 |        3:40:00 |   170     0     9  95.0 | 0.00308222 BTC  8.67% |"
-    )
-
     strategy_results = generate_strategy_comparison(bt_stats=bt_res_data["strategy"])
     assert strategy_results == bt_res_data_comparison
-    assert text_table_strategy(strategy_results, "BTC") == result_str
+    text_table_strategy(strategy_results, "BTC", "STRATEGY SUMMARY")
+
+    captured = capsys.readouterr()
+    text = captured.out
+    assert re.search(
+        r".* Strategy .* Trades .* Avg Profit % .* Tot Profit BTC .* Tot Profit % .* "
+        r"Avg Duration .* Win  Draw  Loss  Win% .* Drawdown .*",
+        text,
+    )
+    assert re.search(
+        r".*StrategyTestV2 .* 179 .* 0.08 .* 0.02608550 .* "
+        r"260.85 .* 3:40:00 .* 170     0     9  95.0 .* 0.00308222 BTC  8.67%.*",
+        text,
+    )
+    assert re.search(
+        r".*TestStrategy .* 179 .* 0.08 .* 0.02608550 .* "
+        r"260.85 .* 3:40:00 .* 170     0     9  95.0 .* 0.00308222 BTC  8.67%.*",
+        text,
+    )
 
 
-def test_generate_edge_table():
+def test_generate_edge_table(capsys):
     results = {}
     results["ETH/BTC"] = PairInfo(-0.01, 0.60, 2, 1, 3, 10, 60)
-    assert generate_edge_table(results).count("+") == 7
-    assert generate_edge_table(results).count("| ETH/BTC |") == 1
-    assert (
-        generate_edge_table(results).count(
-            "|   Risk Reward Ratio |   Required Risk Reward |   Expectancy |"
-        )
-        == 1
-    )
+    generate_edge_table(results)
+    text = capsys.readouterr().out
+    assert re.search(r".* ETH/BTC .*", text)
+    assert re.search(r".* Risk Reward Ratio .* Required Risk Reward .* Expectancy .*", text)
 
 
 def test_generate_periodic_breakdown_stats(testdatadir):
@@ -547,7 +665,7 @@ def test_generate_periodic_breakdown_stats(testdatadir):
     day = res[0]
     assert "date" in day
     assert "draws" in day
-    assert "loses" in day
+    assert "losses" in day
     assert "wins" in day
     assert "profit_abs" in day
 

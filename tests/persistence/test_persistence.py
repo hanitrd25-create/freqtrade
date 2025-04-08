@@ -8,6 +8,7 @@ from sqlalchemy import select
 from freqtrade.constants import CUSTOM_TAG_MAX_LENGTH, DATETIME_PRINT_FORMAT
 from freqtrade.enums import TradingMode
 from freqtrade.exceptions import DependencyException
+from freqtrade.exchange.exchange_utils import TICK_SIZE
 from freqtrade.persistence import LocalTrade, Order, Trade, init_db
 from freqtrade.util import dt_now
 from tests.conftest import (
@@ -879,68 +880,68 @@ def test_calc_close_trade_price(
     "exchange,is_short,lev,close_rate,fee_close,profit,profit_ratio,trading_mode,funding_fees",
     [
         ("binance", False, 1, 2.1, 0.0025, 2.6925, 0.044763092, spot, 0),
-        ("binance", False, 3, 2.1, 0.0025, 2.69166667, 0.134247714, margin, 0),
+        ("binance", False, 3, 2.1, 0.0025, 8.075, 0.134247714, margin, 0),
         ("binance", True, 1, 2.1, 0.0025, -3.3088157, -0.055285142, margin, 0),
-        ("binance", True, 3, 2.1, 0.0025, -3.3088157, -0.16585542, margin, 0),
+        ("binance", True, 3, 2.1, 0.0025, -9.92644709, -0.16585542, margin, 0),
         ("binance", False, 1, 1.9, 0.0025, -3.2925, -0.054738154, margin, 0),
-        ("binance", False, 3, 1.9, 0.0025, -3.29333333, -0.164256026, margin, 0),
+        ("binance", False, 3, 1.9, 0.0025, -9.88, -0.164256026, margin, 0),
         ("binance", True, 1, 1.9, 0.0025, 2.70630953, 0.0452182043, margin, 0),
-        ("binance", True, 3, 1.9, 0.0025, 2.70630953, 0.135654613, margin, 0),
+        ("binance", True, 3, 1.9, 0.0025, 8.11892859, 0.135654613, margin, 0),
         ("binance", False, 1, 2.2, 0.0025, 5.685, 0.09451371, margin, 0),
-        ("binance", False, 3, 2.2, 0.0025, 5.68416667, 0.28349958, margin, 0),
+        ("binance", False, 3, 2.2, 0.0025, 17.0525, 0.28349958, margin, 0),
         ("binance", True, 1, 2.2, 0.0025, -6.3163784, -0.10553681, margin, 0),
-        ("binance", True, 3, 2.2, 0.0025, -6.3163784, -0.31661044, margin, 0),
+        ("binance", True, 3, 2.2, 0.0025, -18.94913, -0.31661044, margin, 0),
         # Kraken
         ("kraken", False, 1, 2.1, 0.0025, 2.6925, 0.044763092, spot, 0),
-        ("kraken", False, 3, 2.1, 0.0025, 2.6525, 0.132294264, margin, 0),
+        ("kraken", False, 3, 2.1, 0.0025, 7.9575, 0.132294264, margin, 0),
         ("kraken", True, 1, 2.1, 0.0025, -3.3706575, -0.056318421, margin, 0),
-        ("kraken", True, 3, 2.1, 0.0025, -3.3706575, -0.168955263, margin, 0),
+        ("kraken", True, 3, 2.1, 0.0025, -10.1119725, -0.168955263, margin, 0),
         ("kraken", False, 1, 1.9, 0.0025, -3.2925, -0.054738154, margin, 0),
-        ("kraken", False, 3, 1.9, 0.0025, -3.3325, -0.166209476, margin, 0),
+        ("kraken", False, 3, 1.9, 0.0025, -9.9975, -0.166209476, margin, 0),
         ("kraken", True, 1, 1.9, 0.0025, 2.6503575, 0.044283333, margin, 0),
-        ("kraken", True, 3, 1.9, 0.0025, 2.6503575, 0.132850000, margin, 0),
+        ("kraken", True, 3, 1.9, 0.0025, 7.9510725, 0.132850000, margin, 0),
         ("kraken", False, 1, 2.2, 0.0025, 5.685, 0.09451371, margin, 0),
-        ("kraken", False, 3, 2.2, 0.0025, 5.645, 0.28154613, margin, 0),
+        ("kraken", False, 3, 2.2, 0.0025, 16.935, 0.28154613, margin, 0),
         ("kraken", True, 1, 2.2, 0.0025, -6.381165, -0.1066192, margin, 0),
-        ("kraken", True, 3, 2.2, 0.0025, -6.381165, -0.3198578, margin, 0),
+        ("kraken", True, 3, 2.2, 0.0025, -19.143495, -0.3198578, margin, 0),
         ("binance", False, 1, 2.1, 0.003, 2.66100000, 0.044239401, spot, 0),
         ("binance", False, 1, 1.9, 0.003, -3.3209999, -0.055211970, spot, 0),
         ("binance", False, 1, 2.2, 0.003, 5.6520000, 0.093965087, spot, 0),
         # FUTURES, funding_fee=1
         ("binance", False, 1, 2.1, 0.0025, 3.6925, 0.06138819, futures, 1),
-        ("binance", False, 3, 2.1, 0.0025, 3.6925, 0.18416458, futures, 1),
+        ("binance", False, 3, 2.1, 0.0025, 9.0775, 0.15091438, futures, 1),
         ("binance", True, 1, 2.1, 0.0025, -2.3074999, -0.03855472, futures, 1),
-        ("binance", True, 3, 2.1, 0.0025, -2.3074999, -0.11566416, futures, 1),
+        ("binance", True, 3, 2.1, 0.0025, -8.9225, -0.14908104, futures, 1),
         ("binance", False, 1, 1.9, 0.0025, -2.2925, -0.03811305, futures, 1),
-        ("binance", False, 3, 1.9, 0.0025, -2.2925, -0.11433915, futures, 1),
+        ("binance", False, 3, 1.9, 0.0025, -8.8775, -0.14758936, futures, 1),
         ("binance", True, 1, 1.9, 0.0025, 3.7075, 0.06194653, futures, 1),
-        ("binance", True, 3, 1.9, 0.0025, 3.7075, 0.18583959, futures, 1),
+        ("binance", True, 3, 1.9, 0.0025, 9.1225, 0.15242272, futures, 1),
         ("binance", False, 1, 2.2, 0.0025, 6.685, 0.11113881, futures, 1),
-        ("binance", False, 3, 2.2, 0.0025, 6.685, 0.33341645, futures, 1),
+        ("binance", False, 3, 2.2, 0.0025, 18.055, 0.30016625, futures, 1),
         ("binance", True, 1, 2.2, 0.0025, -5.315, -0.08880534, futures, 1),
-        ("binance", True, 3, 2.2, 0.0025, -5.315, -0.26641604, futures, 1),
+        ("binance", True, 3, 2.2, 0.0025, -17.945, -0.29983292, futures, 1),
         # FUTURES, funding_fee=-1
         ("binance", False, 1, 2.1, 0.0025, 1.6925, 0.02813798, futures, -1),
-        ("binance", False, 3, 2.1, 0.0025, 1.6925, 0.08441396, futures, -1),
+        ("binance", False, 3, 2.1, 0.0025, 7.0775, 0.11766417, futures, -1),
         ("binance", True, 1, 2.1, 0.0025, -4.307499, -0.07197159, futures, -1),
-        ("binance", True, 3, 2.1, 0.0025, -4.307499, -0.21591478, futures, -1),
+        ("binance", True, 3, 2.1, 0.0025, -10.92249, -0.18249791, futures, -1),
         ("binance", False, 1, 1.9, 0.0025, -4.292499, -0.07136325, futures, -1),
-        ("binance", False, 3, 1.9, 0.0025, -4.292499, -0.21408977, futures, -1),
+        ("binance", False, 3, 1.9, 0.0025, -10.87749, -0.18083957, futures, -1),
         ("binance", True, 1, 1.9, 0.0025, 1.7075, 0.02852965, futures, -1),
-        ("binance", True, 3, 1.9, 0.0025, 1.7075, 0.08558897, futures, -1),
+        ("binance", True, 3, 1.9, 0.0025, 7.1225, 0.11900585, futures, -1),
         ("binance", False, 1, 2.2, 0.0025, 4.684999, 0.07788861, futures, -1),
-        ("binance", False, 3, 2.2, 0.0025, 4.684999, 0.23366583, futures, -1),
+        ("binance", False, 3, 2.2, 0.0025, 16.055, 0.26691604, futures, -1),
         ("binance", True, 1, 2.2, 0.0025, -7.315, -0.12222222, futures, -1),
-        ("binance", True, 3, 2.2, 0.0025, -7.315, -0.36666666, futures, -1),
+        ("binance", True, 3, 2.2, 0.0025, -19.945, -0.33324979, futures, -1),
         # FUTURES, funding_fee=0
         ("binance", False, 1, 2.1, 0.0025, 2.6925, 0.04476309, futures, 0),
-        ("binance", False, 3, 2.1, 0.0025, 2.6925, 0.13428928, futures, 0),
+        ("binance", False, 3, 2.1, 0.0025, 8.0775, 0.13428928, futures, 0),
         ("binance", True, 1, 2.1, 0.0025, -3.3074999, -0.05526316, futures, 0),
-        ("binance", True, 3, 2.1, 0.0025, -3.3074999, -0.16578947, futures, 0),
+        ("binance", True, 3, 2.1, 0.0025, -9.9224997, -0.16578947, futures, 0),
         ("binance", False, 1, 1.9, 0.0025, -3.2925, -0.05473815, futures, 0),
-        ("binance", False, 3, 1.9, 0.0025, -3.2925, -0.16421446, futures, 0),
+        ("binance", False, 3, 1.9, 0.0025, -9.8775, -0.16421446, futures, 0),
         ("binance", True, 1, 1.9, 0.0025, 2.7075, 0.0452381, futures, 0),
-        ("binance", True, 3, 1.9, 0.0025, 2.7075, 0.13571429, futures, 0),
+        ("binance", True, 3, 1.9, 0.0025, 8.1225, 0.13571429, futures, 0),
     ],
 )
 @pytest.mark.usefixtures("init_persistence")
@@ -1161,7 +1162,7 @@ def test_calc_profit(
     trade = Trade(
         pair="ADA/USDT",
         stake_amount=60.0,
-        amount=30.0,
+        amount=30.0 * lev,
         open_rate=2.0,
         open_date=datetime.now(tz=timezone.utc) - timedelta(minutes=10),
         interest_rate=0.0005,
@@ -1182,7 +1183,7 @@ def test_calc_profit(
     assert pytest.approx(val) == profit_res.profit_abs
 
     assert pytest.approx(profit_res.total_profit) == round(profit, 8)
-    # assert pytest.approx(profit_res.total_profit_ratio) == round(profit_ratio, 8)
+    assert pytest.approx(profit_res.total_profit_ratio) == round(profit_ratio, 8)
 
     assert pytest.approx(trade.calc_profit(rate=close_rate)) == round(profit, 8)
     assert pytest.approx(trade.calc_profit_ratio(rate=close_rate)) == round(profit_ratio, 8)
@@ -1192,7 +1193,7 @@ def test_calc_profit(
     assert pytest.approx(profit_res2.profit_ratio) == round(profit_ratio, 8)
 
     assert pytest.approx(profit_res2.total_profit) == round(profit, 8)
-    # assert pytest.approx(profit_res2.total_profit_ratio) == round(profit_ratio, 8)
+    assert pytest.approx(profit_res2.total_profit_ratio) == round(profit_ratio, 8)
 
     assert pytest.approx(trade.calc_profit(close_rate, trade.amount, trade.open_rate)) == round(
         profit, 8
@@ -1404,6 +1405,7 @@ def test_to_json(fee):
         exchange="binance",
         enter_tag=None,
         precision_mode=1,
+        precision_mode_price=1,
         amount_precision=8.0,
         price_precision=7.0,
         contract_size=1,
@@ -1473,6 +1475,7 @@ def test_to_json(fee):
         "amount_precision": 8.0,
         "price_precision": 7.0,
         "precision_mode": 1,
+        "precision_mode_price": 1,
         "contract_size": 1,
         "orders": [],
         "has_open_orders": False,
@@ -1493,6 +1496,7 @@ def test_to_json(fee):
         enter_tag="buys_signal_001",
         exchange="binance",
         precision_mode=2,
+        precision_mode_price=1,
         amount_precision=7.0,
         price_precision=8.0,
         contract_size=1,
@@ -1562,6 +1566,7 @@ def test_to_json(fee):
         "amount_precision": 7.0,
         "price_precision": 8.0,
         "precision_mode": 2,
+        "precision_mode_price": 1,
         "contract_size": 1,
         "orders": [],
         "has_open_orders": False,
@@ -1926,9 +1931,9 @@ def test_get_overall_performance(fee):
 @pytest.mark.parametrize(
     "is_short,pair,profit",
     [
-        (True, "ETC/BTC", -0.005),
-        (False, "XRP/BTC", 0.01),
-        (None, "XRP/BTC", 0.01),
+        (True, "XRP/BTC", -0.00018780487),
+        (False, "ETC/BTC", 0.00003860975),
+        (None, "XRP/BTC", 0.000025203252),
     ],
 )
 def test_get_best_pair(fee, is_short, pair, profit):
@@ -1937,9 +1942,9 @@ def test_get_best_pair(fee, is_short, pair, profit):
 
     create_mock_trades(fee, is_short)
     res = Trade.get_best_pair()
-    assert len(res) == 2
+    assert len(res) == 4
     assert res[0] == pair
-    assert res[1] == profit
+    assert pytest.approx(res[1]) == profit
 
 
 @pytest.mark.usefixtures("init_persistence")
@@ -1949,9 +1954,9 @@ def test_get_best_pair_lev(fee):
 
     create_mock_trades_with_leverage(fee)
     res = Trade.get_best_pair()
-    assert len(res) == 2
-    assert res[0] == "DOGE/BTC"
-    assert res[1] == 0.1713156134055116
+    assert len(res) == 4
+    assert res[0] == "ETC/BTC"
+    assert pytest.approx(res[1]) == 0.00003860975
 
 
 @pytest.mark.usefixtures("init_persistence")
@@ -2136,11 +2141,11 @@ def test_Trade_object_idem():
         "custom_data",
     )
     EXCLUDES2 = (
-        "trades",
-        "trades_open",
+        "bt_trades",
+        "bt_trades_open",
         "bt_trades_open_pp",
         "bt_open_open_trade_count",
-        "total_profit",
+        "bt_total_profit",
         "from_json",
     )
 
@@ -2571,7 +2576,7 @@ def test_recalc_trade_from_orders_ignores_bad_orders(fee, is_short):
     assert trade.amount == 2 * o1_amount
     assert trade.stake_amount == 2 * o1_amount
     assert trade.open_rate == o1_rate
-    assert trade.fee_open_cost == 2 * o1_fee_cost
+    assert trade.fee_open_cost == trade.nr_of_successful_entries * o1_fee_cost
     assert trade.open_trade_value == 2 * o1_trade_val
     assert trade.nr_of_successful_entries == 2
 
@@ -2598,7 +2603,7 @@ def test_recalc_trade_from_orders_ignores_bad_orders(fee, is_short):
     assert trade.amount == o1_amount
     assert trade.stake_amount == o1_amount
     assert trade.open_rate == o1_rate
-    assert trade.fee_open_cost == o1_fee_cost
+    assert trade.fee_open_cost == trade.nr_of_successful_entries * o1_fee_cost
     assert trade.open_trade_value == o1_trade_val
     assert trade.nr_of_successful_entries == 2
 
@@ -2626,7 +2631,7 @@ def test_recalc_trade_from_orders_ignores_bad_orders(fee, is_short):
     assert trade.amount == 2 * o1_amount
     assert trade.stake_amount == 2 * o1_amount
     assert trade.open_rate == o1_rate
-    assert trade.fee_open_cost == 2 * o1_fee_cost
+    assert trade.fee_open_cost == trade.nr_of_successful_entries * o1_fee_cost
     assert trade.open_trade_value == 2 * o1_trade_val
     assert trade.nr_of_successful_entries == 3
 
@@ -2676,6 +2681,36 @@ def test_select_filled_orders(fee):
     orders = trades[4].select_filled_orders("sell")
     assert isinstance(orders, list)
     assert len(orders) == 0
+
+
+@pytest.mark.usefixtures("init_persistence")
+def test_select_filled_orders_usdt(fee):
+    create_mock_trades_usdt(fee)
+
+    trades = Trade.get_trades().all()
+
+    # Closed buy order, no sell order
+    orders = trades[0].select_filled_orders("buy")
+    assert isinstance(orders, list)
+    assert len(orders) == 1
+    assert orders[0].amount == 2.0
+    assert orders[0].filled == 2.0
+    assert orders[0].side == "buy"
+    assert orders[0].price == 10.0
+    assert orders[0].stake_amount == 20
+    assert orders[0].stake_amount_filled == 20
+
+    orders = trades[3].select_filled_orders("buy")
+    assert isinstance(orders, list)
+    assert len(orders) == 0
+    orders = trades[3].select_filled_or_open_orders()
+    assert isinstance(orders, list)
+    assert len(orders) == 1
+    assert orders[0].price == 2.0
+    assert orders[0].amount == 10
+    assert orders[0].filled == 0
+    assert orders[0].stake_amount == 20
+    assert orders[0].stake_amount_filled == 0
 
 
 @pytest.mark.usefixtures("init_persistence")
@@ -2798,6 +2833,8 @@ def test_recalc_trade_from_orders_dca(data) -> None:
         is_short=False,
         leverage=1.0,
         trading_mode=TradingMode.SPOT,
+        price_precision=0.001,
+        precision_mode_price=TICK_SIZE,
     )
     Trade.session.add(trade)
 

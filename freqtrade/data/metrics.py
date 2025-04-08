@@ -2,7 +2,6 @@ import logging
 import math
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, Tuple
 
 import numpy as np
 import pandas as pd
@@ -11,7 +10,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-def calculate_market_change(data: Dict[str, pd.DataFrame], column: str = "close") -> float:
+def calculate_market_change(data: dict[str, pd.DataFrame], column: str = "close") -> float:
     """
     Calculate market change based on "column".
     Calculation is done by taking the first non-null and the last non-null element of each column
@@ -32,7 +31,7 @@ def calculate_market_change(data: Dict[str, pd.DataFrame], column: str = "close"
 
 
 def combine_dataframes_by_column(
-    data: Dict[str, pd.DataFrame], column: str = "close"
+    data: dict[str, pd.DataFrame], column: str = "close"
 ) -> pd.DataFrame:
     """
     Combine multiple dataframes "column"
@@ -50,7 +49,7 @@ def combine_dataframes_by_column(
 
 
 def combined_dataframes_with_rel_mean(
-    data: Dict[str, pd.DataFrame], fromdt: datetime, todt: datetime, column: str = "close"
+    data: dict[str, pd.DataFrame], fromdt: datetime, todt: datetime, column: str = "close"
 ) -> pd.DataFrame:
     """
     Combine multiple dataframes "column"
@@ -70,7 +69,7 @@ def combined_dataframes_with_rel_mean(
 
 
 def combine_dataframes_with_mean(
-    data: Dict[str, pd.DataFrame], column: str = "close"
+    data: dict[str, pd.DataFrame], column: str = "close"
 ) -> pd.DataFrame:
     """
     Combine multiple dataframes "column"
@@ -119,7 +118,7 @@ def _calc_drawdown_series(
 ) -> pd.DataFrame:
     max_drawdown_df = pd.DataFrame()
     max_drawdown_df["cumulative"] = profit_results[value_col].cumsum()
-    max_drawdown_df["high_value"] = max_drawdown_df["cumulative"].cummax()
+    max_drawdown_df["high_value"] = np.maximum(0, max_drawdown_df["cumulative"].cummax())
     max_drawdown_df["drawdown"] = max_drawdown_df["cumulative"] - max_drawdown_df["high_value"]
     max_drawdown_df["date"] = profit_results.loc[:, date_col]
     if starting_balance:
@@ -202,13 +201,11 @@ def calculate_max_drawdown(
         if relative
         else max_drawdown_df["drawdown"].idxmin()
     )
-    if idxmin == 0:
-        raise ValueError("No losing trade, therefore no drawdown.")
-    high_date = profit_results.loc[max_drawdown_df.iloc[:idxmin]["high_value"].idxmax(), date_col]
+
+    high_idx = max_drawdown_df.iloc[: idxmin + 1]["high_value"].idxmax()
+    high_date = profit_results.loc[high_idx, date_col]
     low_date = profit_results.loc[idxmin, date_col]
-    high_val = max_drawdown_df.loc[
-        max_drawdown_df.iloc[:idxmin]["high_value"].idxmax(), "cumulative"
-    ]
+    high_val = max_drawdown_df.loc[high_idx, "cumulative"]
     low_val = max_drawdown_df.loc[idxmin, "cumulative"]
     max_drawdown_rel = max_drawdown_df.loc[idxmin, "drawdown_relative"]
 
@@ -222,7 +219,7 @@ def calculate_max_drawdown(
     )
 
 
-def calculate_csum(trades: pd.DataFrame, starting_balance: float = 0) -> Tuple[float, float]:
+def calculate_csum(trades: pd.DataFrame, starting_balance: float = 0) -> tuple[float, float]:
     """
     Calculate min/max cumsum of trades, to show if the wallet/stake amount ratio is sane
     :param trades: DataFrame containing trades (requires columns close_date and profit_percent)
@@ -255,15 +252,15 @@ def calculate_cagr(days_passed: int, starting_balance: float, final_balance: flo
     return (final_balance / starting_balance) ** (1 / (days_passed / 365)) - 1
 
 
-def calculate_expectancy(trades: pd.DataFrame) -> Tuple[float, float]:
+def calculate_expectancy(trades: pd.DataFrame) -> tuple[float, float]:
     """
     Calculate expectancy
     :param trades: DataFrame containing trades (requires columns close_date and profit_abs)
     :return: expectancy, expectancy_ratio
     """
 
-    expectancy = 0
-    expectancy_ratio = 100
+    expectancy = 0.0
+    expectancy_ratio = 100.0
 
     if len(trades) > 0:
         winning_trades = trades.loc[trades["profit_abs"] > 0]
@@ -376,3 +373,32 @@ def calculate_calmar(
 
     # print(expected_returns_mean, max_drawdown, calmar_ratio)
     return calmar_ratio
+
+
+def calculate_sqn(trades: pd.DataFrame, starting_balance: float) -> float:
+    """
+    Calculate System Quality Number (SQN) - Van K. Tharp.
+    SQN measures systematic trading quality and takes into account both
+    the number of trades and their standard deviation.
+
+    :param trades: DataFrame containing trades (requires column profit_abs)
+    :param starting_balance: Starting balance of the trading system
+    :return: SQN value
+    """
+    if len(trades) == 0:
+        return 0.0
+
+    total_profit = trades["profit_abs"] / starting_balance
+    number_of_trades = len(trades)
+
+    # Calculate average trade and standard deviation
+    average_profits = total_profit.mean()
+    profits_std = total_profit.std()
+
+    if profits_std != 0 and not np.isnan(profits_std):
+        sqn = math.sqrt(number_of_trades) * (average_profits / profits_std)
+    else:
+        # Define negative SQN to indicate this is NOT optimal
+        sqn = -100.0
+
+    return round(sqn, 4)

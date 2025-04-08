@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import re
+from collections.abc import Callable, Coroutine
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -16,7 +17,7 @@ from html import escape
 from itertools import chain
 from math import isnan
 from threading import Thread
-from typing import Any, Callable, Coroutine, Dict, List, Literal, Optional, Union
+from typing import Any, Literal
 
 from tabulate import tabulate
 from telegram import (
@@ -24,6 +25,7 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
+    Message,
     ReplyKeyboardMarkup,
     Update,
 )
@@ -40,7 +42,14 @@ from freqtrade.misc import chunks, plural
 from freqtrade.persistence import Trade
 from freqtrade.rpc import RPC, RPCException, RPCHandler
 from freqtrade.rpc.rpc_types import RPCEntryMsg, RPCExitMsg, RPCOrderMsg, RPCSendMsg
-from freqtrade.util import dt_from_ts, dt_humanize_delta, fmt_coin, format_date, round_value
+from freqtrade.util import (
+    dt_from_ts,
+    dt_humanize_delta,
+    fmt_coin,
+    fmt_coin2,
+    format_date,
+    round_value,
+)
 
 
 MAX_MESSAGE_LENGTH = MessageLimit.MAX_TEXT_LENGTH
@@ -82,25 +91,38 @@ class TimeunitMappings:
 def authorized_only(command_handler: Callable[..., Coroutine[Any, Any, None]]):
     """
     Decorator to check if the message comes from the correct chat_id
+    can only be used with Telegram Class to decorate instance methods.
     :param command_handler: Telegram CommandHandler
     :return: decorated function
     """
 
     @wraps(command_handler)
-    async def wrapper(self, *args, **kwargs):
+    async def wrapper(self, *args, **kwargs) -> None:
         """Decorator logic"""
         update = kwargs.get("update") or args[0]
 
         # Reject unauthorized messages
-        if update.callback_query:
-            cchat_id = int(update.callback_query.message.chat.id)
-        else:
-            cchat_id = int(update.message.chat_id)
+        message: Message = (
+            update.message if update.callback_query is None else update.callback_query.message
+        )
+        cchat_id: int = int(message.chat_id)
+        ctopic_id: int | None = message.message_thread_id
+        from_user_id: str = str(update.effective_user.id if update.effective_user else "")
 
         chat_id = int(self._config["telegram"]["chat_id"])
         if cchat_id != chat_id:
-            logger.info(f"Rejected unauthorized message from: {update.message.chat_id}")
-            return wrapper
+            logger.info(f"Rejected unauthorized message from: {cchat_id}")
+            return None
+        if (topic_id := self._config["telegram"].get("topic_id")) is not None:
+            if str(ctopic_id) != topic_id:
+                # This can be quite common in multi-topic environments.
+                logger.debug(f"Rejected message from wrong channel: {cchat_id}, {ctopic_id}")
+                return None
+
+        authorized = self._config["telegram"].get("authorized_users", None)
+        if authorized is not None and from_user_id not in authorized:
+            logger.info(f"Unauthorized user tried to control the bot: {from_user_id}")
+            return None
         # Rollback session to avoid getting data stored in a transaction.
         Trade.rollback()
         logger.debug("Executing handler: %s for chat_id: %s", command_handler.__name__, chat_id)
@@ -145,7 +167,7 @@ class Telegram(RPCHandler):
         Validates the keyboard configuration from telegram config
         section.
         """
-        self._keyboard: List[List[Union[str, KeyboardButton]]] = [
+        self._keyboard: list[list[str | KeyboardButton]] = [
             ["/daily", "/profit", "/balance"],
             ["/status", "/status table", "/performance"],
             ["/count", "/start", "/stop", "/help"],
@@ -154,8 +176,9 @@ class Telegram(RPCHandler):
         # TODO: DRY! - its not good to list all valid cmds here. But otherwise
         #       this needs refactoring of the whole telegram module (same
         #       problem in _help()).
-        valid_keys: List[str] = [
+        valid_keys: list[str] = [
             r"/start$",
+            r"/pause$",
             r"/stop$",
             r"/status$",
             r"/status table$",
@@ -271,7 +294,7 @@ class Telegram(RPCHandler):
             CommandHandler(["unlock", "delete_locks"], self._delete_locks),
             CommandHandler(["reload_config", "reload_conf"], self._reload_config),
             CommandHandler(["show_config", "show_conf"], self._show_config),
-            CommandHandler(["stopbuy", "stopentry"], self._stopentry),
+            CommandHandler(["stopbuy", "stopentry", "pause"], self._pause),
             CommandHandler("whitelist", self._whitelist),
             CommandHandler("blacklist", self._blacklist),
             CommandHandler(["blacklist_delete", "bl_delete"], self._blacklist_delete),
@@ -283,6 +306,7 @@ class Telegram(RPCHandler):
             CommandHandler("marketdir", self._changemarketdir),
             CommandHandler("order", self._order),
             CommandHandler("list_custom_data", self._list_custom_data),
+            CommandHandler("tg_info", self._tg_info),
         ]
         callbacks = [
             CallbackQueryHandler(self._status_table, pattern="update_status_table"),
@@ -398,10 +422,10 @@ class Telegram(RPCHandler):
         if msg.get("leverage") and msg.get("leverage", 1.0) != 1.0:
             message += f" ({msg['leverage']:.3g}x)"
         message += "`\n"
-        message += f"*Open Rate:* `{round_value(msg['open_rate'], 8)} {msg['quote_currency']}`\n"
+        message += f"*Open Rate:* `{fmt_coin2(msg['open_rate'], msg['quote_currency'])}`\n"
         if msg["type"] == RPCMessageType.ENTRY and msg["current_rate"]:
             message += (
-                f"*Current Rate:* `{round_value(msg['current_rate'], 8)} {msg['quote_currency']}`\n"
+                f"*Current Rate:* `{fmt_coin2(msg['current_rate'], msg['quote_currency'])}`\n"
             )
 
         profit_fiat_extra = self.__format_profit_fiat(msg, "stake_amount")  # type: ignore
@@ -466,14 +490,16 @@ class Telegram(RPCHandler):
             f"*Direction:* `{msg['direction']}"
             f"{leverage_text}`\n"
             f"*Amount:* `{round_value(msg['amount'], 8)}`\n"
-            f"*Open Rate:* `{fmt_coin(msg['open_rate'], msg['quote_currency'])}`\n"
+            f"*Open Rate:* `{fmt_coin2(msg['open_rate'], msg['quote_currency'])}`\n"
         )
         if msg["type"] == RPCMessageType.EXIT and msg["current_rate"]:
-            message += f"*Current Rate:* `{fmt_coin(msg['current_rate'], msg['quote_currency'])}`\n"
+            message += (
+                f"*Current Rate:* `{fmt_coin2(msg['current_rate'], msg['quote_currency'])}`\n"
+            )
             if msg["order_rate"]:
-                message += f"*Exit Rate:* `{fmt_coin(msg['order_rate'], msg['quote_currency'])}`"
+                message += f"*Exit Rate:* `{fmt_coin2(msg['order_rate'], msg['quote_currency'])}`"
         elif msg["type"] == RPCMessageType.EXIT_FILL:
-            message += f"*Exit Rate:* `{fmt_coin(msg['close_rate'], msg['quote_currency'])}`"
+            message += f"*Exit Rate:* `{fmt_coin2(msg['close_rate'], msg['quote_currency'])}`"
 
         if is_sub_trade:
             stake_amount_fiat = self.__format_profit_fiat(msg, "stake_amount")
@@ -498,7 +524,7 @@ class Telegram(RPCHandler):
             profit_fiat_extra = f" / {profit_fiat:.3f} {fiat_currency}"
         return profit_fiat_extra
 
-    def compose_message(self, msg: RPCSendMsg) -> Optional[str]:
+    def compose_message(self, msg: RPCSendMsg) -> str | None:
         if msg["type"] == RPCMessageType.ENTRY or msg["type"] == RPCMessageType.ENTRY_FILL:
             message = self._format_entry_msg(msg)
 
@@ -546,21 +572,22 @@ class Telegram(RPCHandler):
             return None
         return message
 
-    def send_msg(self, msg: RPCSendMsg) -> None:
-        """Send a message to telegram channel"""
-
+    def _message_loudness(self, msg: RPCSendMsg) -> str:
+        """Determine the loudness of the message - on, off or silent"""
         default_noti = "on"
 
         msg_type = msg["type"]
         noti = ""
-        if msg["type"] == RPCMessageType.EXIT:
+        if msg["type"] == RPCMessageType.EXIT or msg["type"] == RPCMessageType.EXIT_FILL:
             sell_noti = (
                 self._config["telegram"].get("notification_settings", {}).get(str(msg_type), {})
             )
+
             # For backward compatibility sell still can be string
             if isinstance(sell_noti, str):
                 noti = sell_noti
             else:
+                default_noti = sell_noti.get("*", default_noti)
                 noti = sell_noti.get(str(msg["exit_reason"]), default_noti)
         else:
             noti = (
@@ -569,8 +596,14 @@ class Telegram(RPCHandler):
                 .get(str(msg_type), default_noti)
             )
 
+        return noti
+
+    def send_msg(self, msg: RPCSendMsg) -> None:
+        """Send a message to telegram channel"""
+        noti = self._message_loudness(msg)
+
         if noti == "off":
-            logger.info(f"Notification '{msg_type}' not sent.")
+            logger.info(f"Notification '{msg['type']}' not sent.")
             # Notification disabled
             return
 
@@ -594,16 +627,16 @@ class Telegram(RPCHandler):
         else:
             return "\N{CROSS MARK}"
 
-    def _prepare_order_details(self, filled_orders: List, quote_currency: str, is_open: bool):
+    def _prepare_order_details(self, filled_orders: list, quote_currency: str, is_open: bool):
         """
         Prepare details of trade with entry adjustment enabled
         """
-        lines_detail: List[str] = []
+        lines_detail: list[str] = []
         if len(filled_orders) > 0:
             first_avg = filled_orders[0]["safe_price"]
         order_nr = 0
         for order in filled_orders:
-            lines: List[str] = []
+            lines: list[str] = []
             if order["is_open"] is True:
                 continue
             order_nr += 1
@@ -662,7 +695,7 @@ class Telegram(RPCHandler):
             lines.extend(lines_detail if lines_detail else "")
             await self.__send_order_msg(lines, r)
 
-    async def __send_order_msg(self, lines: List[str], r: Dict[str, Any]) -> None:
+    async def __send_order_msg(self, lines: list[str], r: dict[str, Any]) -> None:
         """
         Send status message.
         """
@@ -805,7 +838,7 @@ class Telegram(RPCHandler):
 
             await self.__send_status_msg(lines, r)
 
-    async def __send_status_msg(self, lines: List[str], r: Dict[str, Any]) -> None:
+    async def __send_status_msg(self, lines: list[str], r: dict[str, Any]) -> None:
         """
         Send status message.
         """
@@ -831,11 +864,14 @@ class Telegram(RPCHandler):
         :return: None
         """
         fiat_currency = self._config.get("fiat_display_currency", "")
-        statlist, head, fiat_profit_sum = self._rpc._rpc_status_table(
+        statlist, head, fiat_profit_sum, fiat_total_profit_sum = self._rpc._rpc_status_table(
             self._config["stake_currency"], fiat_currency
         )
 
         show_total = not isnan(fiat_profit_sum) and len(statlist) > 1
+        show_total_realized = (
+            not isnan(fiat_total_profit_sum) and len(statlist) > 1 and fiat_profit_sum
+        ) != fiat_total_profit_sum
         max_trades_per_msg = 50
         """
         Calculate the number of messages of 50 trades per message
@@ -848,12 +884,22 @@ class Telegram(RPCHandler):
             if show_total and i == messages_count - 1:
                 # append total line
                 trades.append(["Total", "", "", f"{fiat_profit_sum:.2f} {fiat_currency}"])
+                if show_total_realized:
+                    trades.append(
+                        [
+                            "Total",
+                            "(incl. realized Profits)",
+                            "",
+                            f"{fiat_total_profit_sum:.2f} {fiat_currency}",
+                        ]
+                    )
 
             message = tabulate(trades, headers=head, tablefmt="simple")
             if show_total and i == messages_count - 1:
                 # insert separators line between Total
                 lines = message.split("\n")
-                message = "\n".join(lines[:-1] + [lines[1]] + [lines[-1]])
+                offset = 2 if show_total_realized else 1
+                message = "\n".join(lines[:-offset] + [lines[1]] + lines[-offset:])
             await self._send_msg(
                 f"<pre>{message}</pre>",
                 parse_mode=ParseMode.HTML,
@@ -988,6 +1034,7 @@ class Telegram(RPCHandler):
         avg_duration = stats["avg_duration"]
         best_pair = stats["best_pair"]
         best_pair_profit_ratio = stats["best_pair_profit_ratio"]
+        best_pair_profit_abs = fmt_coin(stats["best_pair_profit_abs"], stake_cur)
         winrate = stats["winrate"]
         expectancy = stats["expectancy"]
         expectancy_ratio = stats["expectancy_ratio"]
@@ -1027,7 +1074,8 @@ class Telegram(RPCHandler):
             if stats["closed_trade_count"] > 0:
                 markdown_msg += (
                     f"\n*Avg. Duration:* `{avg_duration}`\n"
-                    f"*Best Performing:* `{best_pair}: {best_pair_profit_ratio:.2%}`\n"
+                    f"*Best Performing:* `{best_pair}: {best_pair_profit_abs} "
+                    f"({best_pair_profit_ratio:.2%})`\n"
                     f"*Trading volume:* `{fmt_coin(stats['trading_volume'], stake_cur)}`\n"
                     f"*Profit factor:* `{stats['profit_factor']:.2f}`\n"
                     f"*Max Drawdown:* `{stats['max_drawdown']:.2%} "
@@ -1133,7 +1181,6 @@ class Telegram(RPCHandler):
                     curr_output = (
                         f"*{curr['currency']}:*\n"
                         f"\t`{curr['side']}: {curr['position']:.8f}`\n"
-                        f"\t`Leverage: {curr['leverage']:.1f}`\n"
                         f"\t`Est. {curr['stake']}: "
                         f"{fmt_coin(curr['est_stake'], curr['stake'], False)}`\n"
                     )
@@ -1223,15 +1270,15 @@ class Telegram(RPCHandler):
         await self._send_msg(f"Status: `{msg['status']}`")
 
     @authorized_only
-    async def _stopentry(self, update: Update, context: CallbackContext) -> None:
+    async def _pause(self, update: Update, context: CallbackContext) -> None:
         """
-        Handler for /stop_buy.
-        Sets max_open_trades to 0 and gracefully sells all open trades
+        Handler for /stop_buy /stop_entry and /pause.
+        Sets bot state to paused
         :param bot: telegram bot
         :param update: message update
         :return: None
         """
-        msg = self._rpc._rpc_stopentry()
+        msg = self._rpc._rpc_pause()
         await self._send_msg(f"Status: `{msg['status']}`")
 
     @authorized_only
@@ -1261,7 +1308,7 @@ class Telegram(RPCHandler):
         else:
             fiat_currency = self._config.get("fiat_display_currency", "")
             try:
-                statlist, _, _ = self._rpc._rpc_status_table(
+                statlist, _, _, _ = self._rpc._rpc_status_table(
                     self._config["stake_currency"], fiat_currency
                 )
             except RPCException:
@@ -1275,7 +1322,7 @@ class Telegram(RPCHandler):
                 InlineKeyboardButton(text=trade[1], callback_data=f"force_exit__{trade[0]}")
                 for trade in trades
             ]
-            buttons_aligned = self._layout_inline_keyboard_onecol(trade_buttons)
+            buttons_aligned = self._layout_inline_keyboard(trade_buttons, cols=1)
 
             buttons_aligned.append(
                 [InlineKeyboardButton(text="Cancel", callback_data="force_exit__cancel")]
@@ -1301,7 +1348,7 @@ class Telegram(RPCHandler):
                     await query.answer()
                     await query.edit_message_text(text="Force exit canceled.")
                     return
-                trade: Optional[Trade] = Trade.get_trades(trade_filter=Trade.id == trade_id).first()
+                trade: Trade | None = Trade.get_trades(trade_filter=Trade.id == trade_id).first()
                 await query.answer()
                 if trade:
                     await query.edit_message_text(
@@ -1311,7 +1358,7 @@ class Telegram(RPCHandler):
                 else:
                     await query.edit_message_text(text=f"Trade {trade_id} not found.")
 
-    async def _force_enter_action(self, pair, price: Optional[float], order_side: SignalDirection):
+    async def _force_enter_action(self, pair, price: float | None, order_side: SignalDirection):
         if pair != "cancel":
             try:
 
@@ -1345,14 +1392,8 @@ class Telegram(RPCHandler):
 
     @staticmethod
     def _layout_inline_keyboard(
-        buttons: List[InlineKeyboardButton], cols=3
-    ) -> List[List[InlineKeyboardButton]]:
-        return [buttons[i : i + cols] for i in range(0, len(buttons), cols)]
-
-    @staticmethod
-    def _layout_inline_keyboard_onecol(
-        buttons: List[InlineKeyboardButton], cols=1
-    ) -> List[List[InlineKeyboardButton]]:
+        buttons: list[InlineKeyboardButton], cols=3
+    ) -> list[list[InlineKeyboardButton]]:
         return [buttons[i : i + cols] for i in range(0, len(buttons), cols)]
 
     @authorized_only
@@ -1401,19 +1442,21 @@ class Telegram(RPCHandler):
             nrecent = int(context.args[0]) if context.args else 10
         except (TypeError, ValueError, IndexError):
             nrecent = 10
+        nonspot = self._config.get("trading_mode", TradingMode.SPOT) != TradingMode.SPOT
         trades = self._rpc._rpc_trade_history(nrecent)
         trades_tab = tabulate(
             [
                 [
                     dt_humanize_delta(dt_from_ts(trade["close_timestamp"])),
-                    trade["pair"] + " (#" + str(trade["trade_id"]) + ")",
+                    f"{trade['pair']} (#{trade['trade_id']}"
+                    f"{(' ' + ('S' if trade['is_short'] else 'L')) if nonspot else ''})",
                     f"{(trade['close_profit']):.2%} ({trade['close_profit_abs']})",
                 ]
                 for trade in trades["trades"]
             ],
             headers=[
                 "Close Date",
-                "Pair (ID)",
+                "Pair (ID L/S)" if nonspot else "Pair (ID)",
                 f"Profit ({stake_cur})",
             ],
             tablefmt="simple",
@@ -1694,7 +1737,7 @@ class Telegram(RPCHandler):
         """
         await self.send_blacklist_msg(self._rpc._rpc_blacklist(context.args))
 
-    async def send_blacklist_msg(self, blacklist: Dict):
+    async def send_blacklist_msg(self, blacklist: dict):
         errmsgs = []
         for _, error in blacklist["errors"].items():
             errmsgs.append(f"Error: {error['error_msg']}")
@@ -1787,14 +1830,15 @@ class Telegram(RPCHandler):
             "_Bot Control_\n"
             "------------\n"
             "*/start:* `Starts the trader`\n"
-            "*/stop:* Stops the trader\n"
+            "*/pause:* `Pause the new entries for trader, but handles open trades gracefully`\n"
+            "*/stop:* `Stops the trader`\n"
             "*/stopentry:* `Stops entering, but handles open trades gracefully` \n"
             "*/forceexit <trade_id>|all:* `Instantly exits the given trade or all trades, "
             "regardless of profit`\n"
             "*/fx <trade_id>|all:* `Alias to /forceexit`\n"
             f"{force_enter_text if self._config.get('force_entry_enable', False) else ''}"
             "*/delete <trade_id>:* `Instantly delete the given trade in the database`\n"
-            "*/reload_trade <trade_id>:* `Relade trade from exchange Orders`\n"
+            "*/reload_trade <trade_id>:* `Reload trade from exchange Orders`\n"
             "*/cancel_open_order <trade_id>:* `Cancels open orders for trade. "
             "Only valid when the trade has open orders.`\n"
             "*/coo <trade_id>|all:* `Alias to /cancel_open_order`\n"
@@ -1820,7 +1864,7 @@ class Telegram(RPCHandler):
             "that represents the current market direction. If no direction is provided `"
             "`the currently set market direction will be output.` \n"
             "*/list_custom_data <trade_id> <key>:* `List custom_data for Trade ID & Key combo.`\n"
-            "`If no Key is supplied it will list all key-value pairs found for that Trade ID.`"
+            "`If no Key is supplied it will list all key-value pairs found for that Trade ID.`\n"
             "_Statistics_\n"
             "------------\n"
             "*/status <trade_id>|[table]:* `Lists all open trades`\n"
@@ -1939,16 +1983,17 @@ class Telegram(RPCHandler):
             results = self._rpc._rpc_list_custom_data(trade_id, key)
             messages = []
             if len(results) > 0:
-                messages.append("Found custom-data entr" + ("ies: " if len(results) > 1 else "y: "))
-                for result in results:
+                trade_custom_data = results[0]["custom_data"]
+                messages.append(
+                    "Found custom-data entr" + ("ies: " if len(trade_custom_data) > 1 else "y: ")
+                )
+                for custom_data in trade_custom_data:
                     lines = [
-                        f"*Key:* `{result['cd_key']}`",
-                        f"*ID:* `{result['id']}`",
-                        f"*Trade ID:* `{result['ft_trade_id']}`",
-                        f"*Type:* `{result['cd_type']}`",
-                        f"*Value:* `{result['cd_value']}`",
-                        f"*Create Date:* `{format_date(result['created_at'])}`",
-                        f"*Update Date:* `{format_date(result['updated_at'])}`",
+                        f"*Key:* `{custom_data['key']}`",
+                        f"*Type:* `{custom_data['type']}`",
+                        f"*Value:* `{custom_data['value']}`",
+                        f"*Create Date:* `{format_date(custom_data['created_at'])}`",
+                        f"*Update Date:* `{format_date(custom_data['updated_at'])}`",
                     ]
                     # Filter empty lines using list-comprehension
                     messages.append("\n".join([line for line in lines if line]))
@@ -2003,10 +2048,10 @@ class Telegram(RPCHandler):
         msg: str,
         parse_mode: str = ParseMode.MARKDOWN,
         disable_notification: bool = False,
-        keyboard: Optional[List[List[InlineKeyboardButton]]] = None,
+        keyboard: list[list[InlineKeyboardButton]] | None = None,
         callback_path: str = "",
         reload_able: bool = False,
-        query: Optional[CallbackQuery] = None,
+        query: CallbackQuery | None = None,
     ) -> None:
         """
         Send given markdown message
@@ -2015,7 +2060,7 @@ class Telegram(RPCHandler):
         :param parse_mode: telegram parse mode
         :return: None
         """
-        reply_markup: Union[InlineKeyboardMarkup, ReplyKeyboardMarkup]
+        reply_markup: InlineKeyboardMarkup | ReplyKeyboardMarkup
         if query:
             await self._update_msg(
                 query=query,
@@ -2042,6 +2087,7 @@ class Telegram(RPCHandler):
                     parse_mode=parse_mode,
                     reply_markup=reply_markup,
                     disable_notification=disable_notification,
+                    message_thread_id=self._config["telegram"].get("topic_id"),
                 )
             except NetworkError as network_err:
                 # Sometimes the telegram server resets the current connection,
@@ -2055,6 +2101,7 @@ class Telegram(RPCHandler):
                     parse_mode=parse_mode,
                     reply_markup=reply_markup,
                     disable_notification=disable_notification,
+                    message_thread_id=self._config["telegram"].get("topic_id"),
                 )
         except TelegramError as telegram_err:
             logger.warning("TelegramError: %s! Giving up on that message.", telegram_err.message)
@@ -2100,3 +2147,41 @@ class Telegram(RPCHandler):
                 "Invalid usage of command /marketdir. \n"
                 "Usage: */marketdir [short |  long | even | none]*"
             )
+
+    async def _tg_info(self, update: Update, context: CallbackContext) -> None:
+        """
+        Intentionally unauthenticated Handler for /tg_info.
+        Returns information about the current telegram chat - even if chat_id does not
+        correspond to this chat.
+
+        :param update: message update
+        :return: None
+        """
+        if not update.message:
+            return
+        chat_id = update.message.chat_id
+        topic_id = update.message.message_thread_id
+        user_id = (
+            update.effective_user.id if topic_id is not None and update.effective_user else None
+        )
+
+        msg = f"""Freqtrade Bot Info:
+        ```json
+            {{
+                "enabled": true,
+                "token": "********",
+                "chat_id": "{chat_id}",
+                {f'"topic_id": "{topic_id}",' if topic_id else ""}
+                {f'//"authorized_users": ["{user_id}"]' if topic_id and user_id else ""}
+            }}
+        ```
+        """
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=msg,
+                parse_mode=ParseMode.MARKDOWN_V2,
+                message_thread_id=topic_id,
+            )
+        except TelegramError as telegram_err:
+            logger.warning("TelegramError: %s! Giving up on that message.", telegram_err.message)

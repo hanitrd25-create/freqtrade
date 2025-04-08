@@ -4,7 +4,6 @@ Functions to convert data from one format to another
 
 import logging
 import numbers
-from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -159,8 +158,8 @@ def trim_dataframe(
 
 
 def trim_dataframes(
-    preprocessed: Dict[str, DataFrame], timerange, startup_candles: int
-) -> Dict[str, DataFrame]:
+    preprocessed: dict[str, DataFrame], timerange, startup_candles: int
+) -> dict[str, DataFrame]:
     """
     Trim startup period from analyzed dataframes
     :param preprocessed: Dict of pair: dataframe
@@ -168,7 +167,7 @@ def trim_dataframes(
     :param startup_candles: Startup-candles that should be removed
     :return: Dict of trimmed dataframes
     """
-    processed: Dict[str, DataFrame] = {}
+    processed: dict[str, DataFrame] = {}
 
     for pair, df in preprocessed.items():
         trimed_df = trim_dataframe(df, timerange, startup_candles=startup_candles)
