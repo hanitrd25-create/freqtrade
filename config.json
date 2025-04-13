@@ -1,0 +1,163 @@
+{
+    "max_open_trades": 1,
+    "stake_amount": "unlimited",
+    "tradable_balance_ratio": 0.1,
+    "stake_currency": "USDT",
+    "timeframe": "5m",
+    "trading_mode": "futures",
+    "margin_mode": "isolated",
+    "leverage": {
+        "default": 3,
+        "maint_mode": "partial",
+        "reduce_only": true
+    },
+    "pairlists": [
+        {
+            "method": "VolumePairList",
+            "number_assets": 15,
+            "sort_key": "quoteVolume",
+            "refresh_period": 3600,
+            "min_24h_volume": 50000000
+        },
+        {
+            "method": "TrendFilter",
+            "lookback_days": 1,
+            "min_uptrend": 0.7
+        },
+        {
+            "method": "SpreadFilter",
+            "max_spread": 0.05
+        }
+    ],
+    "entry_pricing": {
+        "price_side": "ask",
+        "use_order_book": true,
+        "order_book_top": 1,
+        "check_depth_of_market": {
+            "enabled": true,
+            "asks_to_bid_delta": 0.8
+        },
+        "require": {
+            "ema_fast_above_slow": {
+                "fast": 9,
+                "slow": 21,
+                "min_diff": 0.02
+            },
+            "volume_spike": 1.5
+        }
+    },
+    "exit_pricing": {
+        "price_side": "bid",
+        "use_custom_price": true,
+        "price_last_balance": 0.01
+    },
+    "grid": {
+        "enabled": true,
+        "side": "long",
+        "direction": "down",
+        "step_price": 0.03,
+        "first_order_indent_pct": 1.2,
+        "max_orders": 8,
+        "capital_allocation": {
+            "total_capital_pct": 10.0,
+            "per_order_min_pct": 0.8,
+            "per_order_max_pct": 2.5
+        },
+        "weight_increase": {
+            "enabled": true,
+            "mode": "compound",
+            "start_pct": 1.0,
+            "multiplier": 1.2,
+            "max_pct": 2.5
+        },
+        "dynamic_reallocation": {
+            "enabled": true,
+            "trigger_orders": 2,
+            "new_coverage_pct": 35,
+            "step_adjustment": 0.04,
+            "rebalance_mode": "conservative"
+        },
+        "price_protection": {
+            "enabled": true,
+            "stop_below_entry": 0.02
+        }
+    },
+    "trailing": {
+        "trailing_stop": true,
+        "trailing_stop_positive": 0.01,
+        "trailing_stop_positive_offset": 0.004,
+        "trailing_only_offset_is_reached": false,
+        "trailing_stop_positive_min_uptrend": 0.5
+    },
+    "protections": [
+        {
+            "method": "CooldownPeriod",
+            "stop_duration": 30,
+            "cooldown_lookback": 5
+        },
+        {
+            "method": "MaxDrawdown",
+            "lookback_period": 24,
+            "stop_duration": 180,
+            "max_allowed_drawdown": 0.1
+        },
+        {
+            "method": "UnderwaterStop",
+            "stop_pct": 0.1,
+            "lookback_period": 24
+        }
+    ],
+    "exchange": {
+        "name": "bybit",
+        "key": "YOUR_API_KEY",
+        "secret": "YOUR_SECRET",
+        "pair_whitelist": [],
+        "ccxt_config": {
+            "enableRateLimit": true,
+            "options": {
+                "defaultType": "future",
+                "adjustForTimeDifference": true,
+                "watchOrderBook": true
+            }
+        }
+    },
+    "telegram": {
+        "enabled": true,
+        "token": "7886147130:AAESeRzA7lF3EMxgNr_9JQXesrsIwjHAU20",
+        "chat_id": "512645241",
+        "protection_alerts": true,
+        "notifications": {
+            "startup": true,
+            "trade": true,
+            "order_filled": true,
+            "order_cancelled": true,
+            "order_failed": true,
+            "status": true,
+            "error": true
+        }
+    },
+    "analyzer": {
+        "trend": {
+            "enabled": true,
+            "ema_long": 50,
+            "ema_short": 21,
+            "uptrend_threshold": 0.7
+        },
+        "momentum": {
+            "enabled": true,
+            "rsi_period": 14,
+            "cci_period": 20,
+            "macd_fast": 12,
+            "macd_slow": 26
+        },
+        "volatility": {
+            "enabled": true,
+            "period": 14,
+            "threshold": 0.04
+        },
+        "liquidity": {
+            "enabled": true,
+            "min_orderbook_volume": 0.2
+        }
+    }
+}
