@@ -8,6 +8,11 @@ ENV PYTHONFAULTHANDLER 1
 ENV PATH=/home/ftuser/.local/bin:$PATH
 ENV FT_APP_ENV="docker"
 
+FROM freqtradeorg/freqtrade:stable
+
+COPY config.json /freqtrade/config.json
+
+
 # Prepare environment
 RUN mkdir /freqtrade \
   && apt-get update \
@@ -55,4 +60,4 @@ RUN pip install -e . --user --no-cache-dir --no-build-isolation \
 
 ENTRYPOINT ["freqtrade"]
 # Default to trade mode
-CMD [ "trade" ]
+CMD ["trade", "--config", "/freqtrade/config.json"
