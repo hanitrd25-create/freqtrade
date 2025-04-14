@@ -11,7 +11,7 @@ ENV FT_APP_ENV="docker"
 FROM freqtradeorg/freqtrade:stable
 
 COPY config.json /freqtrade/config.json
-
+COPY user_data/ /freqtrade/user_data/
 
 # Prepare environment
 RUN mkdir /freqtrade \
