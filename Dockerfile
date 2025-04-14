@@ -32,10 +32,20 @@ RUN  apt-get update \
   && apt-get clean \
   && pip install --upgrade pip wheel
 
+RUN apt-get update && \
+    apt-get install -y build-essential wget && \
+    wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && \
+    tar -xzf ta-lib-0.4.0-src.tar.gz && \
+    cd ta-lib/ && \
+    ./configure --prefix=/usr && \
+    make && \
+    make install && \
+    rm -rf /ta-lib* ta-lib-0.4.0-src.tar.gz
+
 # Install TA-lib
-COPY build_helpers/* /tmp/
-RUN cd /tmp && /tmp/install_ta-lib.sh && rm -r /tmp/*ta-lib*
-ENV LD_LIBRARY_PATH /usr/local/lib
+#COPY build_helpers/* /tmp/
+#RUN cd /tmp && /tmp/install_ta-lib.sh && rm -r /tmp/*ta-lib*
+#ENV LD_LIBRARY_PATH /usr/local/lib
 
 # Install dependencies
 COPY --chown=ftuser:ftuser requirements.txt requirements-hyperopt.txt /freqtrade/
