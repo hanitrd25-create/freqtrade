@@ -765,7 +765,9 @@ class FreqtradeBot(LoggingMixin):
         min_exit_stake = self.exchange.get_min_pair_stake_amount(
             trade.pair, current_exit_rate, self.strategy.stoploss, trade.leverage
         )
-        max_entry_stake = self.exchange.get_max_pair_stake_amount(trade.pair, current_entry_rate, trade.leverage)
+        max_entry_stake = self.exchange.get_max_pair_stake_amount(
+            trade.pair, current_entry_rate, trade.leverage
+        )
         stake_available = self.wallets.get_available_stake_amount()
         logger.debug(f"Calling adjust_trade_position for pair {trade.pair}")
         stake_amount, order_tag = self.strategy._adjust_trade_position_internal(
