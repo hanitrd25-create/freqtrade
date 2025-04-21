@@ -4,7 +4,7 @@ bottleneck==1.4.2
 numexpr==2.10.2
 pandas-ta==0.3.14b
 
-ccxt==4.4.71
+ccxt==4.4.75
 cryptography==44.0.2
 aiohttp==3.9.5
 SQLAlchemy==2.0.40
@@ -14,7 +14,7 @@ httpx>=0.24.1
 humanize==4.12.2
 cachetools==5.5.2
 requests==2.32.3
-urllib3==2.3.0
+urllib3==2.4.0
 jsonschema==4.23.0
 TA-Lib==0.4.38
 technical==1.5.0
@@ -38,15 +38,15 @@ sdnotify==0.3.2
 
 # API Server
 fastapi==0.115.12
-pydantic==2.11.1
-uvicorn==0.34.0
+pydantic==2.11.3
+uvicorn==0.34.2
 pyjwt==2.10.1
 aiofiles==24.1.0
 psutil==7.0.0
 
 # Building config files interactively
 questionary==2.1.0
-prompt-toolkit==3.0.50
+prompt-toolkit==3.0.51
 # Extensions to datetime library
 python-dateutil==2.9.0.post0
 pytz==2025.2
@@ -59,4 +59,4 @@ websockets==15.0.1
 janus==2.0.0
 
 ast-comments==1.2.2
-packaging==24.2
+packaging==25.0
