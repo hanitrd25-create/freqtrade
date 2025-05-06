@@ -314,9 +314,10 @@ class Backtesting:
             timeframe_to_seconds(self.timeframe), self.required_startup, min_date
         )
         self.progress.set_new_value(1)
+        self._load_bt_data_detail()
         return data, self.timerange
 
-    def load_bt_data_detail(self) -> None:
+    def _load_bt_data_detail(self) -> None:
         """
         Loads backtest detail data (smaller timeframe) if necessary.
         """
@@ -1773,7 +1774,6 @@ class Backtesting:
         data: dict[str, DataFrame] = {}
 
         data, timerange = self.load_bt_data()
-        self.load_bt_data_detail()
         logger.info("Dataload complete. Calculating indicators")
 
         self.load_prior_backtest()
