@@ -119,7 +119,9 @@ class CustomDataWrapper:
     @staticmethod
     def delete_custom_data(trade_id: int) -> None:
         try:
-            _CustomData.session.query(_CustomData).filter(_CustomData.ft_trade_id == trade_id).delete()
+            _CustomData.session.query(_CustomData).filter(
+                _CustomData.ft_trade_id == trade_id
+            ).delete()
             _CustomData.session.commit()
         except Exception as e:
             logger.error(f"Error deleting custom data: {e}")
