@@ -69,13 +69,18 @@ class _CustomData(ModelBase):
         return will be for generic values not tied to a trade
         :param trade_id: id of the Trade
         """
-        filters = []
-        if trade_id is not None:
-            filters.append(_CustomData.ft_trade_id == trade_id)
-        if key is not None:
-            filters.append(_CustomData.cd_key.ilike(key))
+        try:
+            filters = []
+            if trade_id is not None:
+                filters.append(_CustomData.ft_trade_id == trade_id)
+            if key is not None:
+                filters.append(_CustomData.cd_key.ilike(key))
 
-        return _CustomData.session.scalars(select(_CustomData).filter(*filters)).all()
+            result = _CustomData.session.scalars(select(_CustomData).filter(*filters)).all()
+            return result
+        finally:
+            # Always close the session to return the connection to the pool
+            _CustomData.session.close()
 
 
 class CustomDataWrapper:
@@ -113,34 +118,53 @@ class CustomDataWrapper:
 
     @staticmethod
     def delete_custom_data(trade_id: int) -> None:
-        _CustomData.session.query(_CustomData).filter(_CustomData.ft_trade_id == trade_id).delete()
-        _CustomData.session.commit()
+        try:
+            _CustomData.session.query(_CustomData).filter(_CustomData.ft_trade_id == trade_id).delete()
+            _CustomData.session.commit()
+        except Exception as e:
+            logger.error(f"Error deleting custom data: {e}")
+            _CustomData.session.rollback()
+            raise
+        finally:
+            # Always close the session to return the connection to the pool
+            _CustomData.session.close()
 
     @staticmethod
     def get_custom_data(*, trade_id: int, key: str | None = None) -> list[_CustomData]:
-        if CustomDataWrapper.use_db:
-            filters = [
-                _CustomData.ft_trade_id == trade_id,
-            ]
-            if key is not None:
-                filters.append(_CustomData.cd_key.ilike(key))
-            filtered_custom_data = _CustomData.session.scalars(
-                select(_CustomData).filter(*filters)
-            ).all()
-
-        else:
-            filtered_custom_data = [
-                data_entry
-                for data_entry in CustomDataWrapper.custom_data
-                if (data_entry.ft_trade_id == trade_id)
-            ]
-            if key is not None:
+        try:
+            if CustomDataWrapper.use_db:
+                filters = [
+                    _CustomData.ft_trade_id == trade_id,
+                ]
+                if key is not None:
+                    filters.append(_CustomData.cd_key.ilike(key))
+                filtered_custom_data = _CustomData.session.scalars(
+                    select(_CustomData).filter(*filters)
+                ).all()
+                # Create a copy of the results to avoid accessing the session after it's removed
+                result = [CustomDataWrapper._convert_custom_data(d) for d in filtered_custom_data]
+                # Ensure the session is removed after use
+                _CustomData.session.close()
+                return result
+            else:
                 filtered_custom_data = [
                     data_entry
-                    for data_entry in filtered_custom_data
-                    if (data_entry.cd_key.casefold() == key.casefold())
+                    for data_entry in CustomDataWrapper.custom_data
+                    if (data_entry.ft_trade_id == trade_id)
                 ]
-        return [CustomDataWrapper._convert_custom_data(d) for d in filtered_custom_data]
+                if key is not None:
+                    filtered_custom_data = [
+                        data_entry
+                        for data_entry in filtered_custom_data
+                        if (data_entry.cd_key.casefold() == key.casefold())
+                    ]
+                return [CustomDataWrapper._convert_custom_data(d) for d in filtered_custom_data]
+        except Exception as e:
+            logger.error(f"Error in get_custom_data: {e}")
+            # Ensure session is closed even in case of error
+            if CustomDataWrapper.use_db:
+                _CustomData.session.close()
+            raise
 
     @staticmethod
     def set_custom_data(trade_id: int, key: str, value: Any) -> None:
@@ -158,25 +182,40 @@ class CustomDataWrapper:
         if trade_id is None:
             trade_id = 0
 
-        custom_data = CustomDataWrapper.get_custom_data(trade_id=trade_id, key=key)
-        if custom_data:
-            data_entry = custom_data[0]
-            data_entry.cd_value = value_db
-            data_entry.updated_at = dt_now()
-        else:
-            data_entry = _CustomData(
-                ft_trade_id=trade_id,
-                cd_key=key,
-                cd_type=value_type,
-                cd_value=value_db,
-                created_at=dt_now(),
-            )
-        data_entry.value = value
+        try:
+            custom_data = CustomDataWrapper.get_custom_data(trade_id=trade_id, key=key)
+            if custom_data:
+                data_entry = custom_data[0]
+                data_entry.cd_value = value_db
+                data_entry.updated_at = dt_now()
+            else:
+                data_entry = _CustomData(
+                    ft_trade_id=trade_id,
+                    cd_key=key,
+                    cd_type=value_type,
+                    cd_value=value_db,
+                    created_at=dt_now(),
+                )
+            data_entry.value = value
 
-        if CustomDataWrapper.use_db and value_db is not None:
-            _CustomData.session.add(data_entry)
-            _CustomData.session.commit()
-        else:
-            if not custom_data:
-                CustomDataWrapper.custom_data.append(data_entry)
-            # Existing data will have updated interactively.
+            if CustomDataWrapper.use_db and value_db is not None:
+                try:
+                    _CustomData.session.add(data_entry)
+                    _CustomData.session.commit()
+                except Exception as e:
+                    logger.error(f"Error committing custom data: {e}")
+                    _CustomData.session.rollback()
+                    raise
+                finally:
+                    # Always close the session to return the connection to the pool
+                    _CustomData.session.close()
+            else:
+                if not custom_data:
+                    CustomDataWrapper.custom_data.append(data_entry)
+                # Existing data will have updated interactively.
+        except Exception as e:
+            logger.error(f"Error in set_custom_data: {e}")
+            if CustomDataWrapper.use_db:
+                # Ensure session is closed even in case of error
+                _CustomData.session.close()
+            raise
