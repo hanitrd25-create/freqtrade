@@ -169,7 +169,7 @@ class CustomDataWrapper:
             raise
 
     @staticmethod
-    def set_custom_data(trade_id: int, key: str, value: Any) -> None:
+    def set_custom_data(trade_id: int, key: str, value: Any) -> None:  # noqa: C901, RUF100
         value_type = type(value).__name__
 
         if value_type not in CustomDataWrapper.unserialized_types:
