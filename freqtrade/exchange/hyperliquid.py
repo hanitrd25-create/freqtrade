@@ -260,16 +260,3 @@ class Hyperliquid(Exchange):
         """
         params = self._add_vault_params(params)
         return super().get_trades_for_order(order_id, pair, since, params=params)
-
-    def fetch_my_trades(
-        self,
-        pair: str | None = None,
-        since: datetime | None = None,
-        limit: int | None = None,
-        params: dict | None = None,
-    ) -> list[dict]:
-        """
-        Override fetch_my_trades to ensure vault parameters are included
-        """
-        params = self._add_vault_params(params)
-        return super().fetch_my_trades(pair, since, limit, params=params)
