@@ -3,7 +3,7 @@
 import logging
 from copy import deepcopy
 from datetime import datetime
-from typing import Any, Optional, List, Dict
+from typing import Any
 
 from freqtrade.constants import BuySell
 from freqtrade.enums import MarginMode, TradingMode
@@ -56,8 +56,8 @@ class Hyperliquid(Exchange):
         Adds vault address to params if vault trading is enabled
         """
         params = params or {}
-        if self._config['exchange'].get('isVault', False):
-            vault_address = self._config['exchange'].get('walletAddress')
+        if self._config["exchange"].get("isVault", False):
+            vault_address = self._config["exchange"].get("walletAddress")
             params.update({"vaultAddress": vault_address})
         return params
 
@@ -250,14 +250,22 @@ class Hyperliquid(Exchange):
         params = self._add_vault_params(params)
         return super().cancel_order(order_id, pair, params=params)
 
-    def get_trades_for_order(self, order_id: str, pair: str, since: datetime, params: dict | None = None) -> list:
+    def get_trades_for_order(
+        self, order_id: str, pair: str, since: datetime, params: dict | None = None
+    ) -> list:
         """
         Override get_trades_for_order to ensure vault parameters are included
         """
         params = self._add_vault_params(params)
         return super().get_trades_for_order(order_id, pair, since, params=params)
 
-    def fetch_my_trades(self, pair: str | None = None, since: datetime | None = None, limit: int | None = None, params: dict | None = None) -> List[Dict]:
+    def fetch_my_trades(
+        self,
+        pair: str | None = None,
+        since: datetime | None = None,
+        limit: int | None = None,
+        params: dict | None = None,
+    ) -> list[dict]:
         """
         Override fetch_my_trades to ensure vault parameters are included
         """
