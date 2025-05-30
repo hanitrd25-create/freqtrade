@@ -1,36 +1,48 @@
----
+version: '3.8'
 services:
   freqtrade:
-    image: freqtradeorg/freqtrade:stable
-    # image: freqtradeorg/freqtrade:develop
-    # Use plotting image
-    # image: freqtradeorg/freqtrade:develop_plot
-    # # Enable GPU Image and GPU Resources (only relevant for freqAI)
-    # # Make sure to uncomment the whole deploy section
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
-    # Build step - only needed when additional dependencies are needed
-    # build:
-    #   context: .
-    #   dockerfile: "./docker/Dockerfile.custom"
-    restart: unless-stopped
+    # Use the Dockerfile in the current directory
+    build: .
     container_name: freqtrade
-    volumes:
-      - "./user_data:/freqtrade/user_data"
-    # Expose api on port 8080 (localhost only)
-    # Please read the https://www.freqtrade.io/en/stable/rest-api/ documentation
-    # for more information.
+    restart: unless-stopped
     ports:
+      # Expose api on port 8080 (localhost only)
       - "127.0.0.1:8080:8080"
-    # Default command used when running `docker compose up`
+    volumes:
+      - ./user_data:/freqtrade/user_data
+    # Placeholder for environment variables (e.g., for API keys)
+    # environment:
+    #   - FT_API_KEY=${FT_API_KEY}
+    #   - FT_API_SECRET=${FT_API_SECRET}
+    # The command to run Freqtrade
+    # This will be updated once config.json and strategy are created
     command: >
-      trade
-      --logfile /freqtrade/user_data/logs/freqtrade.log
-      --db-url sqlite:////freqtrade/user_data/tradesv3.sqlite
-      --config /freqtrade/user_data/config.json
-      --strategy SampleStrategy
+      sh -c "
+      if [ ! -f /freqtrade/user_data/config.json ]; then
+        echo 'Config file not found, creating a new one from example.' && \
+        freqtrade new-config --config /freqtrade/user_data/config.json;
+      fi;
+      freqtrade trade --config /freqtrade/user_data/config.json --strategy ExampleStrategy
+      "
+
+  config-api:
+    build:
+      context: ./config_backend
+    container_name: config-api
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./user_data:/app/user_data 
+      # This makes ../user_data/config.json on the host available 
+      # as /app/user_data/config.json in this container.
+      # The Flask app (app.py) is configured to look for it there.
+
+  config-ui:
+    image: nginx:alpine
+    container_name: config-ui
+    restart: unless-stopped
+    ports:
+      - "8081:80" # Nginx listens on 80 by default, mapping to 8081 on host
+    volumes:
+      - ./config_frontend:/usr/share/nginx/html:ro # Mount static files read-only
