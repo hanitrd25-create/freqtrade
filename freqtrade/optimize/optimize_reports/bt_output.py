@@ -102,7 +102,9 @@ def text_table_tags(
         [
             *(
                 (
-                    (t["key"] if isinstance(t["key"], list) else [t["key"], ""])
+                    list(t["key"])
+                    if isinstance(t["key"], list | tuple)
+                    else [t["key"], ""]
                     if is_list
                     else [t["key"]]
                 )
@@ -132,18 +134,18 @@ def text_table_periodic_breakdown(
     """
     headers = [
         period.capitalize(),
+        "Trades",
         f"Tot Profit {stake_currency}",
-        "Wins",
-        "Draws",
-        "Losses",
+        "Profit Factor",
+        "Win  Draw  Loss  Win%",
     ]
     output = [
         [
             d["date"],
+            d.get("trades", "N/A"),
             fmt_coin(d["profit_abs"], stake_currency, False),
-            d["wins"],
-            d["draws"],
-            d["loses"],
+            round(d["profit_factor"], 2) if "profit_factor" in d else "N/A",
+            generate_wins_draws_losses(d["wins"], d["draws"], d.get("losses", d.get("loses", 0))),
         ]
         for d in days_breakdown_stats
     ]
@@ -368,8 +370,18 @@ def text_table_add_metrics(strat_results: dict) -> None:
                 f"{strat_results['winning_days']} / "
                 f"{strat_results['draw_days']} / {strat_results['losing_days']}",
             ),
-            ("Avg. Duration Winners", f"{strat_results['winner_holding_avg']}"),
-            ("Avg. Duration Loser", f"{strat_results['loser_holding_avg']}"),
+            (
+                "Min/Max/Avg. Duration Winners",
+                f"{strat_results.get('winner_holding_min', 'N/A')} / "
+                f"{strat_results.get('winner_holding_max', 'N/A')} / "
+                f"{strat_results.get('winner_holding_avg', 'N/A')}",
+            ),
+            (
+                "Min/Max/Avg. Duration Losers",
+                f"{strat_results.get('loser_holding_min', 'N/A')} / "
+                f"{strat_results.get('loser_holding_max', 'N/A')} / "
+                f"{strat_results.get('loser_holding_avg', 'N/A')}",
+            ),
             (
                 "Max Consecutive Wins / Loss",
                 (
