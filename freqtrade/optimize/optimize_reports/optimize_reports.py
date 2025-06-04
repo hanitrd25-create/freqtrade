@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 import numpy as np
+import pandas as pd  # Import pandas
 from pandas import DataFrame, Series, concat, to_datetime
 
 from freqtrade.constants import BACKTEST_BREAKDOWNS, DATETIME_PRINT_FORMAT
@@ -343,37 +344,55 @@ def generate_trading_stats(results: DataFrame) -> dict[str, Any]:
 
     holding_avg = (
         timedelta(minutes=round(results["trade_duration"].mean()))
-        if not results.empty
+        if not results.empty and not pd.isna(results["trade_duration"].mean())  # Added NaN check
         else timedelta()
     )
+
+    # Robust handling for winner_holding_min
+    winner_min_duration_val = np.nan
+    if not winning_duration.empty:
+        positive_winning_durations = winning_duration[winning_duration > 0]
+        if not positive_winning_durations.empty:
+            winner_min_duration_val = positive_winning_durations.min()
+
     winner_holding_min = (
-        timedelta(minutes=round(winning_duration[winning_duration > 0].min()))
-        if not winning_duration.empty
+        timedelta(minutes=round(winner_min_duration_val))
+        if not pd.isna(winner_min_duration_val)
         else timedelta()
     )
+
     winner_holding_max = (
         timedelta(minutes=round(winning_duration.max()))
-        if not winning_duration.empty
+        if not winning_duration.empty and not pd.isna(winning_duration.max())  # Added NaN check
         else timedelta()
     )
     winner_holding_avg = (
         timedelta(minutes=round(winning_duration.mean()))
-        if not winning_duration.empty
+        if not winning_duration.empty and not pd.isna(winning_duration.mean())  # Added NaN check
         else timedelta()
     )
+
+    # Robust handling for loser_holding_min
+    loser_min_duration_val = np.nan
+    if not losing_duration.empty:
+        positive_losing_durations = losing_duration[losing_duration > 0]
+        if not positive_losing_durations.empty:
+            loser_min_duration_val = positive_losing_durations.min()
+
     loser_holding_min = (
-        timedelta(minutes=round(losing_duration[losing_duration > 0].min()))
-        if not losing_duration.empty
+        timedelta(minutes=round(loser_min_duration_val))
+        if not pd.isna(loser_min_duration_val)  # Check if min_val is not NaN
         else timedelta()
     )
+
     loser_holding_max = (
         timedelta(minutes=round(losing_duration.max()))
-        if not losing_duration.empty
+        if not losing_duration.empty and not pd.isna(losing_duration.max())  # Added NaN check
         else timedelta()
     )
     loser_holding_avg = (
         timedelta(minutes=round(losing_duration.mean()))
-        if not losing_duration.empty
+        if not losing_duration.empty and not pd.isna(losing_duration.mean())  # Added NaN check
         else timedelta()
     )
     winstreak, loss_streak = calc_streak(results)
@@ -417,10 +436,10 @@ def generate_daily_stats(results: DataFrame) -> dict[str, Any]:
         }
     daily_profit_rel = results.resample("1d", on="close_date")["profit_ratio"].sum()
     daily_profit = results.resample("1d", on="close_date")["profit_abs"].sum().round(10)
-    worst_rel = min(daily_profit_rel)
-    best_rel = max(daily_profit_rel)
-    worst = min(daily_profit)
-    best = max(daily_profit)
+    worst_rel = min(daily_profit_rel) if not daily_profit_rel.empty else 0  # Added empty check
+    best_rel = max(daily_profit_rel) if not daily_profit_rel.empty else 0  # Added empty check
+    worst = min(daily_profit) if not daily_profit.empty else 0  # Added empty check
+    best = max(daily_profit) if not daily_profit.empty else 0  # Added empty check
     winning_days = sum(daily_profit > 0)
     draw_days = sum(daily_profit == 0)
     losing_days = sum(daily_profit < 0)
@@ -551,12 +570,34 @@ def generate_strategy_stats(
         "trade_count_long": len(results.loc[~results["is_short"]]),
         "trade_count_short": len(results.loc[results["is_short"]]),
         "total_volume": calculate_trade_volume(trades_dict),
-        "avg_stake_amount": results["stake_amount"].mean() if len(results) > 0 else 0,
-        "profit_mean": results["profit_ratio"].mean() if len(results) > 0 else 0,
-        "profit_median": results["profit_ratio"].median() if len(results) > 0 else 0,
-        "profit_total": results["profit_abs"].sum() / start_balance,
-        "profit_total_long": results.loc[~results["is_short"], "profit_abs"].sum() / start_balance,
-        "profit_total_short": results.loc[results["is_short"], "profit_abs"].sum() / start_balance,
+        "avg_stake_amount": (
+            results["stake_amount"].mean()
+            if len(results) > 0 and not pd.isna(results["stake_amount"].mean())
+            else 0
+        ),  # Added NaN check
+        "profit_mean": (
+            results["profit_ratio"].mean()
+            if len(results) > 0 and not pd.isna(results["profit_ratio"].mean())
+            else 0
+        ),  # Added NaN check
+        "profit_median": (
+            results["profit_ratio"].median()
+            if len(results) > 0 and not pd.isna(results["profit_ratio"].median())
+            else 0
+        ),  # Added NaN check
+        "profit_total": (
+            results["profit_abs"].sum() / start_balance if start_balance else 0
+        ),  # Added check for start_balance being zero
+        "profit_total_long": (
+            results.loc[~results["is_short"], "profit_abs"].sum() / start_balance
+            if start_balance
+            else 0
+        ),  # Added check for start_balance
+        "profit_total_short": (
+            results.loc[results["is_short"], "profit_abs"].sum() / start_balance
+            if start_balance
+            else 0
+        ),  # Added check for start_balance
         "profit_total_abs": results["profit_abs"].sum(),
         "profit_total_long_abs": results.loc[~results["is_short"], "profit_abs"].sum(),
         "profit_total_short_abs": results.loc[results["is_short"], "profit_abs"].sum(),
@@ -575,7 +616,9 @@ def generate_strategy_stats(
         "backtest_days": backtest_days,
         "backtest_run_start_ts": content["backtest_start_time"],
         "backtest_run_end_ts": content["backtest_end_time"],
-        "trades_per_day": round(len(results) / backtest_days, 2),
+        "trades_per_day": (
+            round(len(results) / backtest_days, 2) if backtest_days else 0
+        ),  # Added check for backtest_days being zero
         "market_change": market_change,
         "pairlist": pairlist,
         "stake_amount": config["stake_amount"],
@@ -644,7 +687,7 @@ def generate_strategy_stats(
         csum_min, csum_max = calculate_csum(results, start_balance)
         strat_stats.update({"csum_min": csum_min, "csum_max": csum_max})
 
-    except ValueError:
+    except ValueError:  # Handles cases where drawdown calculation might fail (e.g. no trades)
         strat_stats.update(
             {
                 "max_drawdown_account": 0.0,
@@ -652,9 +695,13 @@ def generate_strategy_stats(
                 "max_drawdown_abs": 0.0,
                 "max_drawdown_low": 0.0,
                 "max_drawdown_high": 0.0,
-                "drawdown_start": datetime(1970, 1, 1, tzinfo=timezone.utc),
+                "drawdown_start": datetime(1970, 1, 1, tzinfo=timezone.utc).strftime(
+                    DATETIME_PRINT_FORMAT
+                ),  # Ensure consistent format
                 "drawdown_start_ts": 0,
-                "drawdown_end": datetime(1970, 1, 1, tzinfo=timezone.utc),
+                "drawdown_end": datetime(1970, 1, 1, tzinfo=timezone.utc).strftime(
+                    DATETIME_PRINT_FORMAT
+                ),  # Ensure consistent format
                 "drawdown_end_ts": 0,
                 "csum_min": 0,
                 "csum_max": 0,
