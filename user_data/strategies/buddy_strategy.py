@@ -18,7 +18,7 @@ from freqtrade.strategy import (
 )
 
 
-class ExampleStrategy(IStrategy):
+class BuddyStrategy(IStrategy):
     """
     Example strategy with weighted indicators
     
