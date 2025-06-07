@@ -1,0 +1,180 @@
+name: Strategy Backtest CI/CD
+
+on:
+  push:
+    branches: [ main, develop, feature/* ]
+    paths:
+      - 'user_data/strategies/**.py'
+      - 'user_data/config*.json'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'user_data/strategies/**.py'
+
+jobs:
+  validate-strategy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        pip install --upgrade pip
+        pip install freqtrade
+        pip install pytest flake8
+    
+    - name: Lint strategies
+      run: |
+        flake8 user_data/strategies/ --max-line-length=120 --exclude=__pycache__
+    
+    - name: Run strategy unit tests
+      run: |
+        pytest tests/
+
+  backtest-strategy:
+    needs: validate-strategy
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        timerange: ['20230101-20230630', '20230701-20231231', '20240101-20240630']
+        strategy: ['${{ github.event.head_commit.modified }}']
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Extract strategy name
+      id: extract
+      run: |
+        # Get modified strategy files
+        CHANGED_FILES=$(git diff --name-only HEAD HEAD~1 | grep "user_data/strategies/.*\.py$" || true)
+        
+        if [ -z "$CHANGED_FILES" ]; then
+          echo "No strategy files changed"
+          echo "strategies=[]" >> $GITHUB_OUTPUT
+        else
+          # Convert to JSON array, remove path and .py extension
+          STRATEGIES=$(echo "$CHANGED_FILES" | sed 's|user_data/strategies/||g' | sed 's|\.py||g' | jq -R -s -c 'split("\n")[:-1]')
+          echo "strategies=$STRATEGIES" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Setup Freqtrade
+      run: |
+        docker pull freqtradeorg/freqtrade:stable
+        mkdir -p user_data/backtest_results
+    
+    - name: Download historical data
+      run: |
+        docker run --rm -v $(pwd):/freqtrade \
+          freqtradeorg/freqtrade:stable \
+          download-data \
+          --config /freqtrade/user_data/config_backtest_ci.json \
+          --timerange ${{ matrix.timerange }} \
+          --timeframes 5m 15m 1h 4h \
+          --exchange binance \
+          --pairs BTC/USDT ETH/USDT SOL/USDT BNB/USDT ADA/USDT DOT/USDT
+    
+    - name: Run backtest
+      id: backtest
+      run: |
+        # Run backtest for each modified strategy
+        for strategy in $(echo '${{ steps.extract.outputs.strategies }}' | jq -r '.[]'); do
+          echo "Backtesting strategy: $strategy"
+          
+          docker run --rm -v $(pwd):/freqtrade \
+            freqtradeorg/freqtrade:stable \
+            backtesting \
+            --config /freqtrade/user_data/config_backtest_ci.json \
+            --strategy-path /freqtrade/user_data/strategies \
+            --strategy $strategy \
+            --timerange ${{ matrix.timerange }} \
+            --enable-position-stacking \
+            --max-open-trades 3 \
+            --export trades \
+            --export-filename user_data/backtest_results/${strategy}_${{ matrix.timerange }}.json
+        done
+    
+    - name: Analyze results
+      id: analyze
+      run: |
+        python scripts/analyze_results.py \
+          --results-dir user_data/backtest_results \
+          --output-format markdown > backtest_summary.md
+        
+        # Extract key metrics for GitHub comment
+        echo "BACKTEST_SUMMARY<<EOF" >> $GITHUB_ENV
+        cat backtest_summary.md >> $GITHUB_ENV
+        echo "EOF" >> $GITHUB_ENV
+    
+    - name: Upload backtest results
+      uses: actions/upload-artifact@v3
+      with:
+        name: backtest-results-${{ matrix.timerange }}
+        path: |
+          user_data/backtest_results/
+          backtest_summary.md
+    
+    - name: Comment PR with results
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const summary = process.env.BACKTEST_SUMMARY;
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `## Backtest Results - ${{ matrix.timerange }}\n\n${summary}`
+          })
+
+  hyperopt-optimization:
+    needs: backtest-strategy
+    runs-on: ubuntu-latest
+    if: contains(github.event.head_commit.message, '[hyperopt]')
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Run Hyperopt
+      run: |
+        docker run --rm -v $(pwd):/freqtrade \
+          freqtradeorg/freqtrade:stable \
+          hyperopt \
+          --config /freqtrade/user_data/config_backtest.json \
+          --strategy ${{ env.STRATEGY_NAME }} \
+          --epochs 100 \
+          --spaces buy sell roi stoploss \
+          --print-all
+    
+    - name: Save hyperopt results
+      uses: actions/upload-artifact@v3
+      with:
+        name: hyperopt-results
+        path: user_data/hyperopt_results/
+
+  generate-report:
+    needs: [backtest-strategy]
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+    
+    - name: Generate comprehensive report
+      run: |
+        python scripts/generate_report.py \
+          --results-dir . \
+          --output report.html
+    
+    - name: Deploy to GitHub Pages
+      if: github.ref == 'refs/heads/main'
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./reports
