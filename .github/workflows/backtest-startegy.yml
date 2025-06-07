@@ -4,12 +4,12 @@ on:
   push:
     branches: [ main, develop, feature/* ]
     paths:
-      - 'strategies/**.py'
+      - 'user_data/strategies/**.py'
       - 'user_data/config*.json'
   pull_request:
     branches: [ main ]
     paths:
-      - 'strategies/**.py'
+      - 'user_data/strategies/**.py'
 
 jobs:
   validate-strategy:
@@ -30,7 +30,7 @@ jobs:
     
     - name: Lint strategies
       run: |
-        flake8 strategies/ --max-line-length=120
+        flake8 user_data/strategies/ --max-line-length=120 --exclude=__pycache__
     
     - name: Run strategy unit tests
       run: |
@@ -51,14 +51,14 @@ jobs:
       id: extract
       run: |
         # Get modified strategy files
-        CHANGED_FILES=$(git diff --name-only HEAD HEAD~1 | grep "strategies/.*\.py$" || true)
+        CHANGED_FILES=$(git diff --name-only HEAD HEAD~1 | grep "user_data/strategies/.*\.py$" || true)
         
         if [ -z "$CHANGED_FILES" ]; then
           echo "No strategy files changed"
           echo "strategies=[]" >> $GITHUB_OUTPUT
         else
-          # Convert to JSON array
-          STRATEGIES=$(echo "$CHANGED_FILES" | sed 's/strategies\///g' | sed 's/\.py//g' | jq -R -s -c 'split("\n")[:-1]')
+          # Convert to JSON array, remove path and .py extension
+          STRATEGIES=$(echo "$CHANGED_FILES" | sed 's|user_data/strategies/||g' | sed 's|\.py||g' | jq -R -s -c 'split("\n")[:-1]')
           echo "strategies=$STRATEGIES" >> $GITHUB_OUTPUT
         fi
     
@@ -72,10 +72,11 @@ jobs:
         docker run --rm -v $(pwd):/freqtrade \
           freqtradeorg/freqtrade:stable \
           download-data \
-          --config /freqtrade/user_data/config.json \
+          --config /freqtrade/user_data/config_backtest_ci.json \
           --timerange ${{ matrix.timerange }} \
+          --timeframes 5m 15m 1h 4h \
           --exchange binance \
-          --pairs BTC/USDT ETH/USDT SOL/USDT BNB/USDT
+          --pairs BTC/USDT ETH/USDT SOL/USDT BNB/USDT ADA/USDT DOT/USDT
     
     - name: Run backtest
       id: backtest
@@ -87,11 +88,14 @@ jobs:
           docker run --rm -v $(pwd):/freqtrade \
             freqtradeorg/freqtrade:stable \
             backtesting \
-            --config /freqtrade/user_data/config_backtest.json \
+            --config /freqtrade/user_data/config_backtest_ci.json \
+            --strategy-path /freqtrade/user_data/strategies \
             --strategy $strategy \
             --timerange ${{ matrix.timerange }} \
+            --enable-position-stacking \
+            --max-open-trades 3 \
             --export trades \
-            --export-filename backtest_results/${strategy}_${{ matrix.timerange }}.json
+            --export-filename user_data/backtest_results/${strategy}_${{ matrix.timerange }}.json
         done
     
     - name: Analyze results
