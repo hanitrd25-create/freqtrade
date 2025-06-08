@@ -25,8 +25,8 @@ def _get_var_typed(val):
             # try to convert from json
             try:
                 value = rapidjson.loads(val)
-                # Limited to lists for now
-                if isinstance(value, list):
+                # Limited to lists and dicts for now
+                if isinstance(value, (list, dict)):
                     return value
             except rapidjson.JSONDecodeError:
                 pass
