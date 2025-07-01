@@ -147,6 +147,21 @@ class MarketCapPairList(IPairList):
 
         return pairlist
 
+    def normalize_pair(self, pair: str) -> str:
+        """
+        Normalize pair by removing 'k' or '1000' prefix from the pair string.
+
+        :param pair: Pair string.
+        :return: Normalized pair string.
+        """
+
+        if pair.startswith("1000"):  # Binance
+            return pair[4:]
+        elif pair.startswith("k"):  # Hyperliquid
+            return pair[1:]
+        else:
+            return pair
+
     def filter_pairlist(self, pairlist: list[str], tickers: dict) -> list[str]:
         """
         Filters and sorts pairlist and returns the whitelist again.
@@ -197,11 +212,17 @@ class MarketCapPairList(IPairList):
                 pair_format += f":{self._stake_currency.upper()}"
 
             top_marketcap = marketcap_list[: self._max_rank :]
+            normalized_pairlist = [self.normalize_pair(p) for p in pairlist]
 
             for mc_pair in top_marketcap:
                 test_pair = f"{mc_pair.upper()}/{pair_format}"
-                if test_pair in pairlist and test_pair not in filtered_pairlist:
-                    filtered_pairlist.append(test_pair)
+                if test_pair in normalized_pairlist and test_pair not in filtered_pairlist:
+                    if f"1000{test_pair}" in pairlist:
+                        filtered_pairlist.append(f"1000{test_pair}")
+                    elif f"k{test_pair}" in pairlist:
+                        filtered_pairlist.append(f"k{test_pair}")
+                    else:
+                        filtered_pairlist.append(test_pair)
                     if len(filtered_pairlist) == self._number_assets:
                         break
 
