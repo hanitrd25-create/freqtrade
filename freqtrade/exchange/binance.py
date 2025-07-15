@@ -55,7 +55,7 @@ class Binance(Exchange):
             PriceType.LAST: "CONTRACT_PRICE",
             PriceType.MARK: "MARK_PRICE",
         },
-        "ws_enabled": False,
+        "ws_enabled": True,
         "proxy_coin_mapping": {
             "BNFCR": "USDC",
             "BFUSD": "USDT",
