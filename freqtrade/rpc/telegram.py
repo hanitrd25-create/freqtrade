@@ -1009,15 +1009,28 @@ class Telegram(RPCHandler):
 
         start_date = datetime.fromtimestamp(0)
         timescale = None
-        try:
-            if context.args:
-                timescale = int(context.args[0]) - 1
-                today_start = datetime.combine(date.today(), datetime.min.time())
-                start_date = today_start - timedelta(days=timescale)
-        except (TypeError, ValueError, IndexError):
-            pass
+        trade_side = "all"
+        if context.args:
+            for arg in context.args:
+                if arg == "long":
+                    trade_side = "long"
+                elif arg == "short":
+                    trade_side = "short"
+                else:
+                    try:
+                        timescale = int(arg) - 1
+                        today_start = datetime.combine(date.today(), datetime.min.time())
+                        start_date = today_start - timedelta(days=timescale)
+                    except (TypeError, ValueError, IndexError):
+                        pass
 
-        stats = self._rpc._rpc_trade_statistics(stake_cur, fiat_disp_cur, start_date)
+        if trade_side == "long":
+            stats = self._rpc._rpc_profit_long(stake_cur, fiat_disp_cur, start_date)
+        elif trade_side == "short":
+            stats = self._rpc._rpc_profit_short(stake_cur, fiat_disp_cur, start_date)
+        else:
+            stats = self._rpc._rpc_trade_statistics(stake_cur, fiat_disp_cur, start_date)
+
         profit_closed_coin = stats["profit_closed_coin"]
         profit_closed_ratio_mean = stats["profit_closed_ratio_mean"]
         profit_closed_percent = stats["profit_closed_percent"]

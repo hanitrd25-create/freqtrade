@@ -967,6 +967,38 @@ async def test_telegram_profit_handle(
     assert "*Trading volume:* `126 USDT`" in msg_mock.call_args_list[-1][0][0]
 
 
+async def test_telegram_profit_handle_long_short(
+    default_conf_usdt, update, ticker_usdt, ticker_sell_up, fee, limit_sell_order_usdt, mocker
+) -> None:
+    mocker.patch("freqtrade.rpc.rpc.CryptoToFiatConverter._find_price", return_value=1.1)
+    mocker.patch.multiple(
+        EXMS,
+        fetch_ticker=ticker_usdt,
+        get_fee=fee,
+    )
+
+    telegram, freqtradebot, msg_mock = get_telegram_testobject(mocker, default_conf_usdt)
+    patch_get_signal(freqtradebot)
+
+    # Create some test data
+    create_mock_trades_usdt(fee)
+    create_mock_trades_usdt(fee, is_short=True)
+
+    context = MagicMock()
+    context.args = ["long"]
+    await telegram._profit(update=update, context=context)
+    assert msg_mock.call_count == 1
+    assert "No closed trade" in msg_mock.call_args_list[-1][0][0]
+    assert "*ROI:* All trades" in msg_mock.call_args_list[-1][0][0]
+
+    msg_mock.reset_mock()
+    context.args = ["short"]
+    await telegram._profit(update=update, context=context)
+    assert msg_mock.call_count == 1
+    assert "No closed trade" in msg_mock.call_args_list[-1][0][0]
+    assert "*ROI:* All trades" in msg_mock.call_args_list[-1][0][0]
+
+
 @pytest.mark.parametrize("is_short", [True, False])
 async def test_telegram_stats(default_conf, update, ticker, fee, mocker, is_short) -> None:
     mocker.patch("freqtrade.rpc.rpc.CryptoToFiatConverter._find_price", return_value=15000.0)
