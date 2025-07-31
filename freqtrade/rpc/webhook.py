@@ -81,7 +81,7 @@ class Webhook(RPCHandler):
             return None
         return valuedict
 
-    # 增加递归格式化方法,支持wx的webhook 嵌套方式配置
+    # 增加递归格式化方法,支持微信和钉钉的webhook 嵌套方式配置
     def recursive_format(self, obj, msg):
         if isinstance(obj, dict):
             return {k: self.recursive_format(v, msg) for k, v in obj.items()}
