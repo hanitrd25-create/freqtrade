@@ -1,0 +1,564 @@
+{
+    "//": "═══════════════════════════════════════════════════════════════════",
+    "//": "TIQ MASTER CONFIG TEMPLATE - Complete Reference Guide v3.0",
+    "//": "═══════════════════════════════════════════════════════════════════",
+    "//": "CRITICAL: Remove ALL '//' comment lines before using this config!",
+    "//": "JSON does NOT support comments - these will cause parse errors!",
+    "//": "",
+    "//": "CLEAN THIS FILE WITH:",
+    "//": "jq 'del(..|select(type==\"object\").|.\"//\")' MASTER_CONFIG_TEMPLATE.json > config_clean.json",
+    "//": "OR: grep -v '\"//\"' MASTER_CONFIG_TEMPLATE.json > config_clean.json",
+    "//": "OR: python -c \"import json; f=open('MASTER_CONFIG_TEMPLATE.json'); data=json.loads(''.join([l for l in f if not l.strip().startswith('\\\"//\\\"')])); print(json.dumps(data, indent=2))\" > config_clean.json",
+    
+    "//": "┌─────────────────────────────────────────────────────────────────┐",
+    "//": "│ SECTION 1: UNIQUE PER STRATEGY - MUST CHANGE FOR EACH BOT      │",
+    "//": "└─────────────────────────────────────────────────────────────────┘",
+    
+    "bot_name": "TIQ_Bot_1",
+    "//": "↑ CHANGE THIS: Unique name for each bot (e.g., TIQ_RSI, TIQ_MACD, TIQ_Bot_2)",
+    
+    "strategy": "AlwaysTrade",
+    "//": "↑ CHANGE THIS: Your strategy file name (without .py extension)",
+    "//": "   Must match a file in user_data/strategies/YourStrategy.py",
+    
+    "db_url": "sqlite:///tradesv3_bot1.sqlite",
+    "//": "↑ CHANGE THIS: Unique database for each bot",
+    "//": "   SQLite: sqlite:///tradesv3_botname.sqlite",
+    "//": "   PostgreSQL: postgresql://user:password@localhost:5432/freqtrade_bot1",
+    "//": "   BACKUP TIP: cp tradesv3_bot1.sqlite tradesv3_bot1_$(date +%Y%m%d).sqlite",
+    
+    "//": "┌─────────────────────────────────────────────────────────────────┐",
+    "//": "│ SECTION 2: API SERVER & SECURITY                                │",
+    "//": "└─────────────────────────────────────────────────────────────────┘",
+    
+    "api_server": {
+        "enabled": true,
+        "listen_ip_address": "127.0.0.1",
+        "listen_port": 8080,
+        "//": "↑ CHANGE THIS: Unique port for each bot",
+        "//": "   Bot 1: 8080, Bot 2: 8081, Bot 3: 8082, etc.",
+        "//": "   PORT ALLOCATION TABLE:",
+        "//": "   8080-8089: Production bots",
+        "//": "   8090-8099: Testing bots",
+        "//": "   8100-8109: Development bots",
+        
+        "verbosity": "error",
+        "//": "↑ VERBOSITY OPTIONS:",
+        "//": "   'error'   = Only errors (quiet, recommended for production)",
+        "//": "   'warning' = Errors + warnings",
+        "//": "   'info'    = Errors + warnings + info (good for monitoring)",
+        "//": "   'debug'   = Everything (very verbose, troubleshooting only)",
+        
+        "enable_openapi": false,
+        
+        "jwt_secret_key": "CHANGE_THIS_TO_RANDOM_STRING_PER_BOT",
+        "//": "↑ SECURITY: JWT authentication token secret",
+        "//": "   GENERATE: openssl rand -hex 32",
+        "//": "   ENVIRONMENT VARIABLE (RECOMMENDED):",
+        "//": "     export FT_JWT_SECRET=$(openssl rand -hex 32)",
+        "//": "     Then use: \"${FT_JWT_SECRET}\" in systemd/docker",
+        "//": "   NEVER commit real secrets to git!",
+        
+        "ws_token": "CHANGE_THIS_TO_RANDOM_STRING_PER_BOT",
+        "//": "↑ SECURITY: WebSocket authentication token",
+        "//": "   GENERATE: openssl rand -hex 16",
+        "//": "   ENVIRONMENT VARIABLE:",
+        "//": "     export FT_WS_TOKEN=$(openssl rand -hex 16)",
+        
+        "CORS_origins": [],
+        "//": "↑ CORS CONFIGURATION (when UI runs on different port):",
+        "//": "   Development (UI on port 3000):",
+        "//": "     [\"http://localhost:3000\", \"http://127.0.0.1:3000\"]",
+        "//": "   Production (specific domain):",
+        "//": "     [\"https://trading.yourcompany.com\"]",
+        "//": "   Docker/K8s internal:",
+        "//": "     [\"http://freqtrade-ui:3000\"]",
+        
+        "username": "tiqtrader",
+        "password": "CHANGE_THIS_PASSWORD"
+        "//": "↑ ENVIRONMENT VARIABLE:",
+        "//": "     export FT_API_PASSWORD='your-secure-password'"
+    },
+    
+    "//": "┌─────────────────────────────────────────────────────────────────┐",
+    "//": "│ SECTION 3: EXECUTION PROFILES (Choose One)                      │",
+    "//": "└─────────────────────────────────────────────────────────────────┘",
+    "//": "DELETE THE PROFILE YOU DON'T WANT TO USE:",
+    
+    "//": "=== PROFILE A: FILL-FIRST (All Market Orders - Fast Execution) ===",
+    "order_types": {
+        "entry": "market",
+        "exit": "market",
+        "emergency_exit": "market",
+        "force_entry": "market",
+        "force_exit": "market",
+        "stoploss": "market",
+        "stoploss_on_exchange": true,
+        "stoploss_on_exchange_interval": 30,
+        "stoploss_on_exchange_limit_ratio": 0.99
+    },
+    
+    "//": "=== PROFILE B: COST-FIRST (Limit Orders - Lower Fees) ===",
+    "//": "order_types: {",
+    "//": "    \"entry\": \"limit\",",
+    "//": "    \"exit\": \"limit\",",
+    "//": "    \"emergency_exit\": \"market\",",
+    "//": "    \"force_entry\": \"market\",",
+    "//": "    \"force_exit\": \"market\",",
+    "//": "    \"stoploss\": \"market\",",
+    "//": "    \"stoploss_on_exchange\": true,",
+    "//": "    \"stoploss_on_exchange_interval\": 60,",
+    "//": "    \"stoploss_on_exchange_limit_ratio\": 0.98",
+    "//": "},",
+    
+    "//": "┌─────────────────────────────────────────────────────────────────┐",
+    "//": "│ SECTION 4: TRADING MODE                                         │",
+    "//": "└─────────────────────────────────────────────────────────────────┘",
+    
+    "dry_run": true,
+    "//": "↑ SAFETY: true = Paper trading, false = Real money",
+    "//": "   ALWAYS test with dry_run: true first!",
+    
+    "dry_run_wallet": 10000,
+    
+    "//": "┌─────────────────────────────────────────────────────────────────┐",
+    "//": "│ SECTION 5: EXCHANGE CONFIGURATION                               │",
+    "//": "└─────────────────────────────────────────────────────────────────┘",
+    
+    "exchange": {
+        "name": "binanceusdm",
+        "//": "↑ EXCHANGE OPTIONS:",
+        "//": "   'binance'       = Binance Spot",
+        "//": "   'binanceusdm'   = Binance USD-M Futures (USDT settled)",
+        "//": "   'binancecoinm'  = Binance COIN-M Futures (crypto settled)",
+        "//": "   'bybit'         = Bybit",
+        "//": "   'okx'           = OKX",
+        "//": "   'gateio'        = Gate.io",
+        "//": "   'kucoin'        = KuCoin",
+        "//": "   'kraken'        = Kraken",
+        
+        "key": "",
+        "secret": "",
+        "//": "↑ ENVIRONMENT VARIABLES (NEVER hardcode in production!):",
+        "//": "     export EXCHANGE_KEY='your-api-key'",
+        "//": "     export EXCHANGE_SECRET='your-api-secret'",
+        
+        "ccxt_config": {},
+        "ccxt_async_config": {},
+        
+        "//": "=== CONSERVATIVE PRODUCTION WHITELIST (5 pairs) ===",
+        "//": "pair_whitelist: [",
+        "//": "    \"BTC/USDT:USDT\",",
+        "//": "    \"ETH/USDT:USDT\",",
+        "//": "    \"SOL/USDT:USDT\",",
+        "//": "    \"BNB/USDT:USDT\",",
+        "//": "    \"LINK/USDT:USDT\"",
+        "//": "],",
+        
+        "//": "=== EXTENDED EXPERIMENTAL WHITELIST (26 pairs) ===",
+        "pair_whitelist": [
+            "BTC/USDT:USDT",
+            "ETH/USDT:USDT",
+            "SOL/USDT:USDT",
+            "BNB/USDT:USDT",
+            "UNI/USDT:USDT",
+            "AAVE/USDT:USDT",
+            "LINK/USDT:USDT",
+            "LTC/USDT:USDT",
+            "XRP/USDT:USDT",
+            "ADA/USDT:USDT",
+            "ENA/USDT:USDT",
+            "LDO/USDT:USDT",
+            "PENDLE/USDT:USDT",
+            "WIF/USDT:USDT",
+            "1000BONK/USDT:USDT",
+            "1000PEPE/USDT:USDT",
+            "DOGE/USDT:USDT",
+            "1000SHIB/USDT:USDT",
+            "BOME/USDT:USDT",
+            "JUP/USDT:USDT",
+            "JTO/USDT:USDT",
+            "TAO/USDT:USDT",
+            "SUSHI/USDT:USDT",
+            "ONDO/USDT:USDT",
+            "EIGEN/USDT:USDT",
+            "RAYSOL/USDT:USDT"
+        ],
+        
+        "//": "↑ PAIR FORMAT BY EXCHANGE TYPE:",
+        "//": "   Spot:           'BTC/USDT'",
+        "//": "   USD-M Futures:  'BTC/USDT:USDT' (USDT settled)",
+        "//": "   COIN-M Futures: 'BTC/USD:BTC' (BTC settled)",
+        
+        "pair_blacklist": []
+    },
+    
+    "//": "┌─────────────────────────────────────────────────────────────────┐",
+    "//": "│ SECTION 6: POSITION SIZING                                      │",
+    "//": "└─────────────────────────────────────────────────────────────────┘",
+    
+    "stake_currency": "USDT",
+    "//": "↑ STAKE CURRENCY OPTIONS:",
+    "//": "   'USDT'  = USD-M Futures, most spot pairs",
+    "//": "   'BUSD'  = Alternative stablecoin",
+    "//": "   'BTC'   = COIN-M Futures, BTC pairs",
+    "//": "   'ETH'   = ETH base pairs",
+    
+    "stake_amount": 100,
+    "//": "↑ POSITION SIZING:",
+    "//": "   100             = Fixed $100 per trade",
+    "//": "   'unlimited'     = Use max available",
+    "//": "   '25%'           = Use 25% of balance",
+    "//": "",
+    "//": "   DYNAMIC SIZING (add to strategy file):",
+    "//": "   def custom_stake_amount(self, pair: str, current_time: datetime,",
+    "//": "                           current_rate: float, proposed_stake: float,",
+    "//": "                           min_stake: Optional[float], max_stake: float,",
+    "//": "                           leverage: float, entry_tag: Optional[str],",
+    "//": "                           side: str, **kwargs) -> float:",
+    "//": "       # RSI-based confidence sizing",
+    "//": "       dataframe, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)",
+    "//": "       rsi = dataframe.iloc[-1]['rsi']",
+    "//": "       if rsi < 20 or rsi > 80:",
+    "//": "           return max_stake * 0.9  # High confidence",
+    "//": "       elif rsi < 30 or rsi > 70:",
+    "//": "           return max_stake * 0.7  # Medium confidence",
+    "//": "       else:",
+    "//": "           return max_stake * 0.5  # Low confidence",
+    
+    "tradable_balance_ratio": 0.99,
+    "max_open_trades": 10,
+    "//": "↑ -1 = unlimited (be careful!)",
+    
+    "//": "┌─────────────────────────────────────────────────────────────────┐",
+    "//": "│ SECTION 7: FUTURES & LEVERAGE                                   │",
+    "//": "└─────────────────────────────────────────────────────────────────┘",
+    
+    "trading_mode": "futures",
+    "//": "↑ OPTIONS: 'spot', 'futures', 'margin'",
+    
+    "margin_mode": "isolated",
+    "//": "↑ OPTIONS: 'isolated' (safer), 'cross' (riskier)",
+    
+    "//": "LEVERAGE is set in STRATEGY, not config!",
+    "//": "Add to your strategy file:",
+    "//": "def leverage(self, pair: str, current_time: datetime, current_rate: float,",
+    "//": "            proposed_leverage: float, max_leverage: float, entry_tag: Optional[str],",
+    "//": "            side: str, **kwargs) -> float:",
+    "//": "    # Fixed 3x leverage, capped to exchange max",
+    "//": "    return min(3.0, max_leverage)",
+    "//": "",
+    "//": "    # Or dynamic based on volatility:",
+    "//": "    dataframe, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)",
+    "//": "    atr = dataframe.iloc[-1]['atr']",
+    "//": "    if atr < 0.02:  # Low volatility",
+    "//": "        return min(5.0, max_leverage)",
+    "//": "    else:  # High volatility",
+    "//": "        return min(2.0, max_leverage)",
+    
+    "//": "┌─────────────────────────────────────────────────────────────────┐",
+    "//": "│ SECTION 8: TIMING CONFIGURATION                                 │",
+    "//": "└─────────────────────────────────────────────────────────────────┘",
+    
+    "timeframe": "5m",
+    "//": "↑ OPTIONS: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w",
+    
+    "//": "=== TIMING PRESETS BY STRATEGY TYPE ===",
+    "//": "HIGH FREQUENCY (1m/3m timeframe):",
+    "//": "  unfilledtimeout: {entry: 1, exit: 1, unit: minutes}",
+    "//": "  process_throttle_secs: 2-5",
+    "//": "",
+    "//": "MEDIUM FREQUENCY (5m/15m timeframe - DEFAULT):",
+    "unfilledtimeout": {
+        "entry": 5,
+        "exit": 5,
+        "exit_timeout_count": 0,
+        "unit": "minutes"
+    },
+    "internals": {
+        "process_throttle_secs": 10
+    },
+    "//": "",
+    "//": "LOW FREQUENCY (1h+ timeframe):",
+    "//": "  unfilledtimeout: {entry: 15, exit: 10, unit: minutes}",
+    "//": "  process_throttle_secs: 20-30",
+    "//": "",
+    "//": "PROCESS THROTTLE BY SERVER:",
+    "//": "  Local/Fast VPS: 2-5 seconds",
+    "//": "  Standard VPS: 10-15 seconds",
+    "//": "  Low-spec/Shared: 20-30 seconds",
+    
+    "//": "┌─────────────────────────────────────────────────────────────────┐",
+    "//": "│ SECTION 9: ENTRY/EXIT PRICING                                   │",
+    "//": "└─────────────────────────────────────────────────────────────────┘",
+    
+    "entry_pricing": {
+        "price_side": "same",
+        "//": "↑ ENTRY PRICING (buying):",
+        "//": "   'same'  = ASK price (taker, immediate fill)",
+        "//": "   'other' = BID price (maker, may not fill)",
+        "//": "   'bid'   = Explicit bid",
+        "//": "   'ask'   = Explicit ask",
+        "//": "   'last'  = Last traded",
+        
+        "use_order_book": true,
+        "order_book_top": 1,
+        "//": "↑ 1 = Best bid/ask, 2 = Second level, etc.",
+        
+        "price_last_balance": 0.0,
+        "//": "↑ 0.0 = Pure order book, 0.5 = Mix, 1.0 = Pure last price",
+        
+        "check_depth_of_market": {
+            "enabled": false,
+            "bids_to_ask_delta": 1
+        }
+    },
+    
+    "exit_pricing": {
+        "price_side": "same",
+        "//": "↑ EXIT PRICING (selling):",
+        "//": "   'same'  = BID price (taker)",
+        "//": "   'other' = ASK price (maker)",
+        
+        "use_order_book": true,
+        "order_book_top": 1
+    },
+    
+    "//": "CUSTOM ENTRY/EXIT PRICES are in STRATEGY:",
+    "//": "def custom_entry_price(...) -> float:",
+    "//": "    return proposed_rate * 0.995  # Buy 0.5% below market",
+    "//": "",
+    "//": "def custom_exit_price(...) -> float:",
+    "//": "    return trade.open_rate * 1.02  # Sell 2% above entry",
+    
+    "//": "┌─────────────────────────────────────────────────────────────────┐",
+    "//": "│ SECTION 10: PROTECTION MECHANISMS (Risk Management)             │",
+    "//": "└─────────────────────────────────────────────────────────────────┘",
+    
+    "//": "=== PRODUCTION PRESET (Conservative) ===",
+    "protections": [
+        {
+            "method": "CooldownPeriod",
+            "stop_duration_candles": 3
+            "//": "↑ Wait 3 candles after exiting before re-entering same pair"
+        },
+        {
+            "method": "StoplossGuard",
+            "lookback_period_candles": 72,
+            "trade_limit": 3,
+            "stop_duration_candles": 24,
+            "only_per_pair": false
+            "//": "↑ If 3 stop losses in 72 candles, stop trading for 24 candles"
+        },
+        {
+            "method": "MaxDrawdown",
+            "lookback_period_candles": 200,
+            "trade_limit": 10,
+            "stop_duration_candles": 48,
+            "max_allowed_drawdown": 0.15
+            "//": "↑ If drawdown > 15%, stop trading for 48 candles"
+        },
+        {
+            "method": "LowProfitPairs",
+            "lookback_period_candles": 360,
+            "trade_limit": 4,
+            "stop_duration_candles": 60,
+            "required_profit": 0.01,
+            "only_per_pair": true
+            "//": "↑ Stop trading pairs with < 1% profit over 360 candles"
+        }
+    ],
+    
+    "//": "=== AGGRESSIVE PRESET (Less Protection) ===",
+    "//": "protections: [",
+    "//": "    {\"method\": \"CooldownPeriod\", \"stop_duration_candles\": 1},",
+    "//": "    {\"method\": \"StoplossGuard\", \"lookback_period_candles\": 24, \"trade_limit\": 5, \"stop_duration_candles\": 6, \"only_per_pair\": true},",
+    "//": "    {\"method\": \"MaxDrawdown\", \"lookback_period_candles\": 100, \"trade_limit\": 20, \"stop_duration_candles\": 12, \"max_allowed_drawdown\": 0.25}",
+    "//": "],",
+    
+    "//": "=== BACKTEST PRESET (Minimal Protection) ===",
+    "//": "protections: [],",
+    
+    "//": "┌─────────────────────────────────────────────────────────────────┐",
+    "//": "│ SECTION 11: PAIRLIST CONFIGURATION                              │",
+    "//": "└─────────────────────────────────────────────────────────────────┘",
+    
+    "pairlists": [
+        {
+            "method": "StaticPairList"
+        }
+    ],
+    
+    "//": "DYNAMIC PAIR SELECTION OPTIONS:",
+    "//": "",
+    "//": "=== Volume-Based (Top 20 by volume) ===",
+    "//": "pairlists: [{",
+    "//": "    \"method\": \"VolumePairList\",",
+    "//": "    \"number_assets\": 20,",
+    "//": "    \"sort_key\": \"quoteVolume\",",
+    "//": "    \"min_value\": 10000000,",
+    "//": "    \"refresh_period\": 1800",
+    "//": "}],",
+    "//": "",
+    "//": "=== Production Multi-Filter ===",
+    "//": "pairlists: [",
+    "//": "    {\"method\": \"VolumePairList\", \"number_assets\": 50},",
+    "//": "    {\"method\": \"AgeFilter\", \"min_days_listed\": 10},",
+    "//": "    {\"method\": \"SpreadFilter\", \"max_spread_ratio\": 0.002},",
+    "//": "    {\"method\": \"VolatilityFilter\", \"lookback_days\": 10, \"min_volatility\": 0.01, \"max_volatility\": 0.50},",
+    "//": "    {\"method\": \"ShuffleFilter\", \"seed\": 42}",
+    "//": "],",
+    
+    "//": "┌─────────────────────────────────────────────────────────────────┐",
+    "//": "│ SECTION 12: TELEGRAM NOTIFICATIONS                              │",
+    "//": "└─────────────────────────────────────────────────────────────────┘",
+    
+    "telegram": {
+        "enabled": false,
+        "token": "YOUR_TELEGRAM_BOT_TOKEN",
+        "//": "↑ Get from @BotFather on Telegram",
+        
+        "chat_id": "YOUR_CHAT_ID",
+        "//": "↑ Get from @userinfobot on Telegram",
+        
+        "//": "=== CRITICAL ONLY (Low Noise) ===",
+        "notification_settings": {
+            "status": "off",
+            "warning": "on",
+            "startup": "off",
+            "entry": "off",
+            "entry_fill": "on",
+            "entry_cancel": "off",
+            "exit": "off",
+            "exit_fill": "on",
+            "exit_cancel": "off",
+            "protection_trigger": "on",
+            "protection_trigger_global": "on",
+            "strategy_msg": "off",
+            "show_candle": "off"
+        }
+        
+        "//": "=== FULL MONITORING (All Notifications) ===",
+        "//": "notification_settings: {",
+        "//": "    \"status\": \"on\",",
+        "//": "    \"warning\": \"on\",",
+        "//": "    \"startup\": \"on\",",
+        "//": "    \"entry\": \"on\",",
+        "//": "    \"entry_fill\": \"on\",",
+        "//": "    \"entry_cancel\": \"on\",",
+        "//": "    \"exit\": \"on\",",
+        "//": "    \"exit_fill\": \"on\",",
+        "//": "    \"exit_cancel\": \"on\",",
+        "//": "    \"protection_trigger\": \"on\",",
+        "//": "    \"protection_trigger_global\": \"on\",",
+        "//": "    \"strategy_msg\": \"on\",",
+        "//": "    \"show_candle\": \"on\"",
+        "//": "}"
+    },
+    
+    "//": "┌─────────────────────────────────────────────────────────────────┐",
+    "//": "│ SECTION 13: STARTUP & ADVANCED SETTINGS                         │",
+    "//": "└─────────────────────────────────────────────────────────────────┘",
+    
+    "initial_state": "running",
+    "//": "↑ 'running' = Auto-start, 'stopped' = Manual start",
+    
+    "force_entry_enable": false,
+    "//": "↑ Allow manual trades via UI/Telegram",
+    
+    "position_adjustment_enable": false,
+    "//": "↑ Enable DCA (Dollar Cost Averaging)",
+    
+    "max_entry_position_adjustment": 3,
+    "//": "↑ Max additional entries per trade",
+    
+    "//": "┌─────────────────────────────────────────────────────────────────┐",
+    "//": "│ SECTION 14: LOGGING & MONITORING                                │",
+    "//": "└─────────────────────────────────────────────────────────────────┘",
+    
+    "//": "LOG FILES LOCATION:",
+    "//": "  user_data/logs/freqtrade.log",
+    "//": "",
+    "//": "LOG ROTATION (add to crontab):",
+    "//": "  0 0 * * * find user_data/logs -name '*.log' -mtime +7 -delete",
+    "//": "",
+    "//": "DATABASE BACKUP (add to crontab):",
+    "//": "  0 2 * * * cp user_data/tradesv3*.sqlite user_data/backups/$(date +\\%Y\\%m\\%d)/",
+    "//": "",
+    "//": "MONITORING ENDPOINTS:",
+    "//": "  Health: http://localhost:8080/api/v1/ping",
+    "//": "  Status: http://localhost:8080/api/v1/status",
+    "//": "  Profit: http://localhost:8080/api/v1/profit",
+    "//": "  Performance: http://localhost:8080/api/v1/performance",
+    
+    "//": "┌─────────────────────────────────────────────────────────────────┐",
+    "//": "│ SECTION 15: OTHER SETTINGS                                      │",
+    "//": "└─────────────────────────────────────────────────────────────────┘",
+    
+    "$schema": "https://schema.freqtrade.io/schema.json",
+    "fiat_display_currency": "USD",
+    "cancel_open_orders_on_exit": false,
+    
+    "//": "═══════════════════════════════════════════════════════════════════",
+    "//": "COMMON PITFALLS & WARNINGS",
+    "//": "═══════════════════════════════════════════════════════════════════",
+    "//": "1. STOP-LOSS and TAKE-PROFIT go in STRATEGY file, not config!",
+    "//": "2. LEVERAGE goes in STRATEGY file via leverage() method!",
+    "//": "3. JSON COMMENTS must be removed or bot won't start!",
+    "//": "4. FUTURES PAIRS need :USDT suffix (BTC/USDT:USDT)!",
+    "//": "5. Each BOT needs unique: port, database, JWT, WS token!",
+    "//": "6. NEVER commit real API keys or passwords to git!",
+    "//": "7. ALWAYS test with dry_run first!",
+    "//": "8. CORS only needed if UI on different port/domain!",
+    
+    "//": "═══════════════════════════════════════════════════════════════════",
+    "//": "MULTI-BOT MANAGEMENT",
+    "//": "═══════════════════════════════════════════════════════════════════",
+    "//": "GENERATE CONFIGS:",
+    "//": "for i in {1..5}; do",
+    "//": "  sed -e \"s/TIQ_Bot_1/TIQ_Bot_$i/g\" \\",
+    "//": "      -e \"s/8080/808$((i-1))/g\" \\",
+    "//": "      -e \"s/bot1.sqlite/bot$i.sqlite/g\" \\",
+    "//": "      MASTER_CONFIG_TEMPLATE.json > config_bot$i.json",
+    "//": "  # Generate unique secrets",
+    "//": "  JWT=$(openssl rand -hex 32)",
+    "//": "  WS=$(openssl rand -hex 16)",
+    "//": "  sed -i \"s/CHANGE_THIS_TO_RANDOM_STRING_PER_BOT/$JWT/\" config_bot$i.json",
+    "//": "  sed -i \"s/CHANGE_THIS_TO_RANDOM_STRING_PER_BOT/$WS/\" config_bot$i.json",
+    "//": "done",
+    "//": "",
+    "//": "START ALL BOTS:",
+    "//": "for i in {1..5}; do",
+    "//": "  screen -dmS bot$i freqtrade trade --config config_bot$i.json",
+    "//": "done",
+    
+    "//": "═══════════════════════════════════════════════════════════════════",
+    "//": "QUICK REFERENCE",
+    "//": "═══════════════════════════════════════════════════════════════════",
+    "//": "FILES:",
+    "//": "  Strategy: user_data/strategies/YourStrategy.py",
+    "//": "  Config: user_data/config_yourstrategy.json",
+    "//": "  Database: user_data/tradesv3_yourstrategy.sqlite",
+    "//": "  Logs: user_data/logs/freqtrade.log",
+    "//": "",
+    "//": "COMMANDS:",
+    "//": "  Clean JSON: jq 'del(..|select(type==\"object\").|.\"//\")' MASTER_CONFIG_TEMPLATE.json > config.json",
+    "//": "  Then test it: freqtrade test-config --config config.json | cat",
+    "//": "  Generate JWT: openssl rand -hex 32",
+    "//": "  Generate WS: openssl rand -hex 16",
+    "//": "  Test config: freqtrade test-config --config config.json",
+    "//": "  Backtest: freqtrade backtesting --config config.json --strategy YourStrategy",
+    "//": "  Dry run: freqtrade trade --config config.json --strategy YourStrategy",
+    "//": "  Download data: freqtrade download-data --config config.json --days 60",
+    "//": "",
+    "//": "ENVIRONMENT VARIABLES:",
+    "//": "  export FT_JWT_SECRET=$(openssl rand -hex 32)",
+    "//": "  export FT_WS_TOKEN=$(openssl rand -hex 16)",
+    "//": "  export FT_API_PASSWORD='secure-password'",
+    "//": "  export EXCHANGE_KEY='your-api-key'",
+    "//": "  export EXCHANGE_SECRET='your-api-secret'",
+    
+    "//": "═══════════════════════════════════════════════════════════════════",
+    "//": "END OF CONFIG - REMOVE ALL COMMENT LINES BEFORE USE!",
+    "//": "═══════════════════════════════════════════════════════════════════"
+}
