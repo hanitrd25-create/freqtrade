@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- TIQ Logo Design -->
+  <defs>
+    <linearGradient id="tiqGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#5EEAD4;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#3ABCD1;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background Circle -->
+  <circle cx="100" cy="100" r="95" fill="#000000" stroke="url(#tiqGradient)" stroke-width="2"/>
+  
+  <!-- TIQ Text -->
+  <text x="100" y="85" font-family="Arial, sans-serif" font-size="48" font-weight="bold" text-anchor="middle" fill="url(#tiqGradient)">TIQ</text>
+  
+  <!-- Subtitle -->
+  <text x="100" y="125" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#5EEAD4">Trade Intelligence Quant</text>
+</svg>

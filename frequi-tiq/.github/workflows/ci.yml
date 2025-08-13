@@ -1,0 +1,120 @@
+name: FreqUI CI
+
+on:
+  push:
+    branches:
+      - main
+      - ci/**
+
+  pull_request:
+    branches:
+      - main
+  release:
+    types: [ published ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ ubuntu-22.04 ]
+        node: [ "20", "22", "23", "24" ]
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+
+    - name: Install pnpm
+      uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node }}
+        cache: 'pnpm'
+
+
+    - run: pnpm install
+
+    - name: Run Lint
+      run: pnpm run lint-ci
+
+    - name: Run type check
+      run: pnpm run typecheck
+
+    - name: Run Tests
+      run: pnpm run test:unit
+
+    - name: Build build
+      run: pnpm run build
+
+    - name: Archive artifacts
+      uses: actions/upload-artifact@v4
+      # Ideally this would upload the zip file from below - but this action currently does not support this.
+      with:
+        name: freqUI-${{ matrix.node }}
+        path: |
+          dist
+          !dist/**/*.map
+        retention-days: 10
+
+    # Playwright section
+    - name: Install Playwright Browsers
+      run: pnpm exec playwright install --with-deps
+
+    - name: Run Playwright tests
+      run: pnpm exec playwright test
+
+    - uses: actions/upload-artifact@v4
+      if: ${{ !cancelled() }}
+      with:
+        name: playwright-report-${{ matrix.node }}
+        path: playwright-report/
+        retention-days: 30
+
+    # End Playwright section
+
+  release:
+    runs-on: "ubuntu-latest"
+    if: github.event_name == 'release'
+    needs: build
+    permissions:
+      contents: write
+    steps:
+    - name: Download digests
+      uses: actions/download-artifact@v5
+      with:
+        path: ./dist/
+        # Use node-22 build.
+        name: freqUI-22
+
+    - name: Zip files for release
+      run: |
+        cd dist/
+        zip -r ../freqUI.zip .
+        cd ../
+
+    - name: Upload release binaries
+      uses: alexellis/upload-assets@13926a61cdb2cb35f5fdef1c06b8b591523236d3 # 0.4.1
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      with:
+        asset_paths: '["./freqUI.zip"]'
+
+  call-docker-workflow:
+    needs: build
+    if: (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'release') && github.repository == 'freqtrade/frequi'
+    uses: ./.github/workflows/docker.yml
+    permissions:
+      packages: write
+      contents: read
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
