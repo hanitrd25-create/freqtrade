@@ -410,51 +410,16 @@
     "//": "],",
     
     "//": "┌─────────────────────────────────────────────────────────────────┐",
-    "//": "│ SECTION 12: TELEGRAM NOTIFICATIONS                              │",
+    "//": "│ SECTION 12: TELEGRAM NOTIFICATIONS (DEFAULT DISABLED)           │",
     "//": "└─────────────────────────────────────────────────────────────────┘",
-    
-    "telegram": {
-        "enabled": false,
-        "token": "YOUR_TELEGRAM_BOT_TOKEN",
-        "//": "↑ Get from @BotFather on Telegram",
-        
-        "chat_id": "YOUR_CHAT_ID",
-        "//": "↑ Get from @userinfobot on Telegram",
-        
-        "//": "=== CRITICAL ONLY (Low Noise) ===",
-        "notification_settings": {
-            "status": "off",
-            "warning": "on",
-            "startup": "off",
-            "entry": "off",
-            "entry_fill": "on",
-            "entry_cancel": "off",
-            "exit": "off",
-            "exit_fill": "on",
-            "exit_cancel": "off",
-            "protection_trigger": "on",
-            "protection_trigger_global": "on",
-            "strategy_msg": "off",
-            "show_candle": "off"
-        }
-        
-        "//": "=== FULL MONITORING (All Notifications) ===",
-        "//": "notification_settings: {",
-        "//": "    \"status\": \"on\",",
-        "//": "    \"warning\": \"on\",",
-        "//": "    \"startup\": \"on\",",
-        "//": "    \"entry\": \"on\",",
-        "//": "    \"entry_fill\": \"on\",",
-        "//": "    \"entry_cancel\": \"on\",",
-        "//": "    \"exit\": \"on\",",
-        "//": "    \"exit_fill\": \"on\",",
-        "//": "    \"exit_cancel\": \"on\",",
-        "//": "    \"protection_trigger\": \"on\",",
-        "//": "    \"protection_trigger_global\": \"on\",",
-        "//": "    \"strategy_msg\": \"on\",",
-        "//": "    \"show_candle\": \"on\"",
-        "//": "}"
-    },
+    "//": "DEFAULT: Do NOT include a 'telegram' object. Leaving it out fully disables Telegram and avoids schema requirements.",
+    "//": "If you want to ENABLE Telegram, ADD the following block (and replace token/chat_id):",
+    "//": "telegram: {",
+    "//": "  enabled: true,",
+    "//": "  token: 'YOUR_TELEGRAM_BOT_TOKEN',",
+    "//": "  chat_id: 'YOUR_CHAT_ID',",
+    "//": "  notification_settings: { status: 'off', warning: 'on', startup: 'off', entry: 'off', entry_fill: 'on', exit: 'off', exit_fill: 'on', protection_trigger: 'on', protection_trigger_global: 'on' }",
+    "//": "}",
     
     "//": "┌─────────────────────────────────────────────────────────────────┐",
     "//": "│ SECTION 13: STARTUP & ADVANCED SETTINGS                         │",
