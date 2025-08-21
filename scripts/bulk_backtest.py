@@ -116,9 +116,7 @@ def discover_pairs(timeframe: str) -> list[str]:
     return sorted(set(pairs))
 
 
-def discover_pairs_with_volume(
-    timeframe: str, lookback_days: int, top_n: int
-) -> list[str]:
+def discover_pairs_with_volume(timeframe: str, lookback_days: int, top_n: int) -> list[str]:
     """Return top_n pairs by average quote volume (close * volume) over lookback_days.
 
     Falls back to basic discovery if errors occur.
