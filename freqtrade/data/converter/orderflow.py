@@ -156,7 +156,11 @@ def populate_dataframe_with_trades(
                     imbalance_ratio=config_orderflow["imbalance_ratio"],
                     imbalance_volume=config_orderflow["imbalance_volume"],
                 )
-                dataframe.at[index, "imbalances"] = imbalances.to_dict(orient="index")
+                # Memory optimization: use adaptive dict conversion for imbalances
+                if len(imbalances) > 100:  # For large imbalance data, use iterrows for memory efficiency
+                    dataframe.at[index, "imbalances"] = {idx: row.to_dict() for idx, row in imbalances.iterrows()}
+                else:
+                    dataframe.at[index, "imbalances"] = imbalances.to_dict(orient="index")
 
                 stacked_imbalance_range = config_orderflow["stacked_imbalance_range"]
                 dataframe.at[index, "stacked_imbalances_bid"] = stacked_imbalance(
