@@ -135,9 +135,10 @@ def populate_dataframe_with_trades(
                         dataframe.at[index, col] = cached_grouped_trades.at[cache_idx, col]
                     continue
 
-                dataframe.at[index, "trades"] = trades_grouped_df.drop(
-                    columns=["candle_start", "candle_end"]
-                ).to_dict(orient="records")
+                # Memory optimization: avoid copying data, use column selection instead
+                trades_columns = [col for col in trades_grouped_df.columns 
+                                if col not in {"candle_start", "candle_end"}]
+                dataframe.at[index, "trades"] = trades_grouped_df[trades_columns].to_dict(orient="records")
 
                 # Calculate orderflow for each candle
                 orderflow = trades_to_volumeprofile_with_total_delta_bid_ask(
