@@ -162,13 +162,12 @@ def populate_dataframe_with_trades(
                     imbalances, label="ask", stacked_imbalance_range=stacked_imbalance_range
                 )
 
-                bid = np.where(
-                    trades_grouped_df["side"].str.contains("sell"), trades_grouped_df["amount"], 0
-                )
-
-                ask = np.where(
-                    trades_grouped_df["side"].str.contains("buy"), trades_grouped_df["amount"], 0
-                )
+                # Pre-compute side masks for memory efficiency with large datasets
+                is_sell_mask = trades_grouped_df["side"].str.contains("sell")
+                is_buy_mask = trades_grouped_df["side"].str.contains("buy")
+                
+                bid = np.where(is_sell_mask, trades_grouped_df["amount"], 0)
+                ask = np.where(is_buy_mask, trades_grouped_df["amount"], 0)
                 deltas_per_trade = ask - bid
                 dataframe.at[index, "max_delta"] = deltas_per_trade.cumsum().max()
                 dataframe.at[index, "min_delta"] = deltas_per_trade.cumsum().min()
