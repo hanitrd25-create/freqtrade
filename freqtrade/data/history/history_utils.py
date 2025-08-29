@@ -1,5 +1,6 @@
 import logging
 import operator
+from collections.abc import MutableMapping
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -24,6 +25,107 @@ from freqtrade.util.progress_tracker import CustomProgress, retrieve_progress_tr
 
 
 logger = logging.getLogger(__name__)
+
+
+class LazyDataLoader(MutableMapping):
+    """
+    Lazy loader for DataFrames - loads data only when accessed.
+    Reduces initial memory footprint and startup time.
+    """
+
+    def __init__(
+        self,
+        pairs: list[str],
+        datadir: Path,
+        timeframe: str,
+        timerange: TimeRange | None,
+        fill_up_missing: bool,
+        startup_candles: int,
+        data_handler: IDataHandler,
+        candle_type: CandleType,
+        user_futures_funding_rate: int | None = None,
+    ):
+        self._pairs = pairs
+        self._datadir = datadir
+        self._timeframe = timeframe
+        self._timerange = timerange
+        self._fill_up_missing = fill_up_missing
+        self._startup_candles = startup_candles
+        self._data_handler = data_handler
+        self._candle_type = candle_type
+        self._user_futures_funding_rate = user_futures_funding_rate
+        self._cache: dict[str, DataFrame] = {}
+        self._loaded_pairs = set()
+
+    def __getitem__(self, pair: str) -> DataFrame:
+        if pair not in self._cache:
+            hist = load_pair_history(
+                pair=pair,
+                timeframe=self._timeframe,
+                datadir=self._datadir,
+                timerange=self._timerange,
+                fill_up_missing=self._fill_up_missing,
+                startup_candles=self._startup_candles,
+                data_handler=self._data_handler,
+                candle_type=self._candle_type,
+            )
+            if not hist.empty:
+                self._cache[pair] = hist
+                self._loaded_pairs.add(pair)
+            elif self._candle_type is CandleType.FUNDING_RATE and self._user_futures_funding_rate is not None:
+                logger.warning(f"{pair} using user specified [{self._user_futures_funding_rate}]")
+                self._cache[pair] = DataFrame(columns=["date", "open", "close", "high", "low", "volume"])
+            elif self._candle_type not in (CandleType.SPOT, CandleType.FUTURES):
+                self._cache[pair] = DataFrame(columns=["date", "open", "close", "high", "low", "volume"])
+            else:
+                raise KeyError(f"No data found for {pair}")
+        return self._cache[pair]
+
+    def __setitem__(self, pair: str, value: DataFrame):
+        self._cache[pair] = value
+        self._loaded_pairs.add(pair)
+
+    def __delitem__(self, pair: str):
+        del self._cache[pair]
+        self._loaded_pairs.discard(pair)
+
+    def __iter__(self):
+        # Iterate only over loaded pairs to maintain lazy behavior
+        return iter(self._loaded_pairs)
+
+    def __len__(self):
+        return len(self._loaded_pairs)
+
+    def keys(self):
+        # Return all potential pairs, not just loaded ones
+        return self._pairs
+    
+    def items(self):
+        """Iterate over items, loading data as needed."""
+        for pair in self._pairs:
+            try:
+                yield pair, self[pair]
+            except KeyError:
+                # Skip pairs with no data
+                pass
+    
+    def values(self):
+        """Iterate over values, loading data as needed."""
+        for pair in self._pairs:
+            try:
+                yield self[pair]
+            except KeyError:
+                # Skip pairs with no data
+                pass
+
+    def load_all(self) -> dict[str, DataFrame]:
+        """Force load all pairs and return as regular dict."""
+        for pair in self._pairs:
+            try:
+                self[pair]  # Trigger lazy loading
+            except KeyError:
+                pass  # Skip pairs with no data
+        return dict(self._cache)
 
 
 def load_pair_history(
@@ -80,7 +182,8 @@ def load_data(
     data_format: str = "feather",
     candle_type: CandleType = CandleType.SPOT,
     user_futures_funding_rate: int | None = None,
-) -> dict[str, DataFrame]:
+    lazy: bool = True,
+) -> dict[str, DataFrame] | LazyDataLoader:
     """
     Load ohlcv history data for a list of pairs.
 
@@ -93,36 +196,67 @@ def load_data(
     :param fail_without_data: Raise OperationalException if no data is found.
     :param data_format: Data format which should be used. Defaults to json
     :param candle_type: Any of the enum CandleType (must match trading mode!)
-    :return: dict(<pair>:<Dataframe>)
+    :param lazy: If True, return LazyDataLoader for on-demand loading. If False, load all data immediately.
+    :return: dict(<pair>:<Dataframe>) or LazyDataLoader
     """
-    result: dict[str, DataFrame] = {}
     if startup_candles > 0 and timerange:
         logger.debug(f"Using indicator startup period: {startup_candles} ...")
 
     data_handler = get_datahandler(datadir, data_format)
 
-    for pair in pairs:
-        hist = load_pair_history(
-            pair=pair,
-            timeframe=timeframe,
+    if lazy:
+        # Return lazy loader for on-demand loading
+        loader = LazyDataLoader(
+            pairs=pairs,
             datadir=datadir,
+            timeframe=timeframe,
             timerange=timerange,
             fill_up_missing=fill_up_missing,
             startup_candles=startup_candles,
             data_handler=data_handler,
             candle_type=candle_type,
+            user_futures_funding_rate=user_futures_funding_rate,
         )
-        if not hist.empty:
-            result[pair] = hist
-        else:
-            if candle_type is CandleType.FUNDING_RATE and user_futures_funding_rate is not None:
-                logger.warning(f"{pair} using user specified [{user_futures_funding_rate}]")
-            elif candle_type not in (CandleType.SPOT, CandleType.FUTURES):
-                result[pair] = DataFrame(columns=["date", "open", "close", "high", "low", "volume"])
+        
+        if fail_without_data:
+            # Check if at least one pair has data
+            has_data = False
+            for pair in pairs:
+                try:
+                    loader[pair]  # Try to load
+                    has_data = True
+                    break
+                except KeyError:
+                    continue
+            if not has_data:
+                raise OperationalException("No data found. Terminating.")
+        
+        return loader
+    else:
+        # Original eager loading behavior
+        result: dict[str, DataFrame] = {}
+        for pair in pairs:
+            hist = load_pair_history(
+                pair=pair,
+                timeframe=timeframe,
+                datadir=datadir,
+                timerange=timerange,
+                fill_up_missing=fill_up_missing,
+                startup_candles=startup_candles,
+                data_handler=data_handler,
+                candle_type=candle_type,
+            )
+            if not hist.empty:
+                result[pair] = hist
+            else:
+                if candle_type is CandleType.FUNDING_RATE and user_futures_funding_rate is not None:
+                    logger.warning(f"{pair} using user specified [{user_futures_funding_rate}]")
+                elif candle_type not in (CandleType.SPOT, CandleType.FUTURES):
+                    result[pair] = DataFrame(columns=["date", "open", "close", "high", "low", "volume"])
 
-    if fail_without_data and not result:
-        raise OperationalException("No data found. Terminating.")
-    return result
+        if fail_without_data and not result:
+            raise OperationalException("No data found. Terminating.")
+        return result
 
 
 def refresh_data(
@@ -540,17 +674,25 @@ def refresh_backtest_trades_data(
     return pairs_not_available
 
 
-def get_timerange(data: dict[str, DataFrame]) -> tuple[datetime, datetime]:
+def get_timerange(data: dict[str, DataFrame] | LazyDataLoader) -> tuple[datetime, datetime]:
     """
     Get the maximum common timerange for the given backtest data.
 
-    :param data: dictionary with preprocessed backtesting data
+    :param data: dictionary with preprocessed backtesting data or LazyDataLoader
     :return: tuple containing min_date, max_date
     """
+    # Handle LazyDataLoader by forcing load all data
+    if isinstance(data, LazyDataLoader):
+        data = data.load_all()
+    
     timeranges = [
         (frame["date"].min().to_pydatetime(), frame["date"].max().to_pydatetime())
         for frame in data.values()
     ]
+    
+    if not timeranges:
+        raise ValueError("No data available to determine timerange")
+    
     return (
         min(timeranges, key=operator.itemgetter(0))[0],
         max(timeranges, key=operator.itemgetter(1))[1],
