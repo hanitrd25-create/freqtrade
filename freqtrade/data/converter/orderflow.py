@@ -107,12 +107,14 @@ def populate_dataframe_with_trades(
         # get date of earliest max_candles candle
         max_candles = config_orderflow["max_candles"]
         start_date = dataframe.tail(max_candles).date.iat[0]
-        # slice of trades that are before current ohlcv candles to make groupby faster
-        trades = trades.loc[trades["candle_start"] >= start_date]
-        trades.reset_index(inplace=True, drop=True)
+        # Use query for memory-efficient filtering instead of creating copy
+        trades_mask = trades["candle_start"] >= start_date
+        if not trades_mask.any():
+            return dataframe, cached_grouped_trades
+        trades_filtered = trades.loc[trades_mask]
 
         # group trades by candle start
-        trades_grouped_by_candle_start = trades.groupby("candle_start", group_keys=False)
+        trades_grouped_by_candle_start = trades_filtered.groupby("candle_start", group_keys=False)
 
         candle_start: datetime
         for candle_start, trades_grouped_df in trades_grouped_by_candle_start:
