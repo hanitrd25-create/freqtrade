@@ -21,19 +21,21 @@ def _init_dataframe_with_trades_columns(dataframe: pd.DataFrame):
     Populates a dataframe with trades columns
     :param dataframe: Dataframe to populate
     """
-    # Initialize columns with appropriate dtypes
-    for column in ORDERFLOW_ADDED_COLUMNS:
-        dataframe[column] = np.nan
-
-    # Set columns to object type
-    for column in (
+    # Object columns that need special dtype handling
+    object_columns = {
         "trades",
         "orderflow",
-        "imbalances",
+        "imbalances", 
         "stacked_imbalances_bid",
         "stacked_imbalances_ask",
-    ):
-        dataframe[column] = dataframe[column].astype(object)
+    }
+    
+    # Initialize all columns in a single pass with appropriate dtypes
+    for column in ORDERFLOW_ADDED_COLUMNS:
+        if column in object_columns:
+            dataframe[column] = pd.Series(dtype=object)
+        else:
+            dataframe[column] = np.nan
 
 
 def timeframe_to_DateOffset(timeframe: str) -> pd.DateOffset:
