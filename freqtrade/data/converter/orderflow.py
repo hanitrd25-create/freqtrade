@@ -190,8 +190,14 @@ def populate_dataframe_with_trades(
 
         logger.debug(f"trades.groups_keys in {time.time() - start_time} seconds")
 
-        # Cache the entire dataframe
-        cached_grouped_trades = dataframe.tail(config_orderflow["cache_size"]).copy()
+        # Memory optimization: use efficient caching for large datasets
+        cache_size = config_orderflow["cache_size"]
+        if cache_size > 0 and len(dataframe) > 0:
+            # Use iloc for more efficient slicing with large datasets
+            start_idx = max(0, len(dataframe) - cache_size)
+            cached_grouped_trades = dataframe.iloc[start_idx:].copy()
+        else:
+            cached_grouped_trades = None
 
     except Exception as e:
         logger.exception("Error populating dataframe with trades")
