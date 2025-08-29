@@ -57,7 +57,11 @@ class ParquetDataHandler(IDataHandler):
             if not filename.exists():
                 return DataFrame(columns=self._columns)
         try:
-            pairdata = read_parquet(filename)
+            # Use memory mapping for files > 50MB for better performance
+            file_size = filename.stat().st_size
+            use_mmap = file_size > 50_000_000  # 50MB threshold
+            
+            pairdata = read_parquet(filename, memory_map=use_mmap)
             pairdata.columns = self._columns
             pairdata = pairdata.astype(
                 dtype={
@@ -124,7 +128,11 @@ class ParquetDataHandler(IDataHandler):
         if not filename.exists():
             return DataFrame(columns=DEFAULT_TRADES_COLUMNS)
 
-        tradesdata = read_parquet(filename)
+        # Use memory mapping for files > 50MB for better performance
+        file_size = filename.stat().st_size
+        use_mmap = file_size > 50_000_000  # 50MB threshold
+        
+        tradesdata = read_parquet(filename, memory_map=use_mmap)
 
         return tradesdata
 
