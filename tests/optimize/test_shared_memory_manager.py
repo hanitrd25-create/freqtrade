@@ -195,7 +195,7 @@ def test_shared_data_wrapper_dataframe(manager, sample_dataframe):
     key = manager.share_dataframe(sample_dataframe)
     metadata = manager.metadata[key]
     
-    wrapper = SharedDataWrapper(key, {key: metadata})
+    wrapper = SharedDataWrapper(key, metadata)
     
     # Get data through wrapper
     retrieved_df = wrapper.get_data()

@@ -29,6 +29,7 @@ from freqtrade.optimize.hyperopt_tools import (
     HyperoptTools,
     hyperopt_serializer,
 )
+from freqtrade.optimize.hyperopt_integration import HyperoptIntegration
 from freqtrade.util import get_progress_tracker
 
 
@@ -90,6 +91,9 @@ class Hyperopt:
 
         self.hyperopter = HyperOptimizer(self.config, self.data_pickle_file)
         self.count_skipped_epochs = 0
+        
+        # Initialize hyperopt integration for performance optimizations
+        self.hyperopt_integration = HyperoptIntegration(self.config)
 
     @staticmethod
     def get_lock_filename(config: Config) -> str:
@@ -251,10 +255,28 @@ class Hyperopt:
         self.hyperopt_table_header = -1
         self.hyperopter.prepare_hyperopt()
 
+        # Log system resource status
+        self.hyperopt_integration.log_resource_status()
+        
+        # Get optimized parallel settings
+        optimized_settings = self.hyperopt_integration.optimize_parallel_settings()
+        logger.info(f"Optimized settings: {optimized_settings['n_jobs']} workers, "
+                   f"batch size: {optimized_settings['batch_size']}, "
+                   f"memory status: {optimized_settings['memory_status']}")
+        
+        # Setup shared memory if beneficial
+        shared_data_keys = self.hyperopt_integration.setup_shared_memory(self.data_pickle_file)
+        if shared_data_keys:
+            logger.info(f"Shared memory enabled for large datasets")
+            # Pass shared memory info to hyperopter
+            self.hyperopter.shared_data_wrapper = self.hyperopt_integration.get_shared_data_wrapper()
+        else:
+            self.hyperopter.shared_data_wrapper = None
+
         cpus = cpu_count()
         logger.info(f"Found {cpus} CPU cores. Let's make them scream!")
-        config_jobs = self.config.get("hyperopt_jobs", -1)
-        logger.info(f"Number of parallel jobs set as: {config_jobs}")
+        config_jobs = optimized_settings['n_jobs']
+        logger.info(f"Number of parallel jobs optimized as: {config_jobs}")
 
         self.opt = self.hyperopter.get_optimizer(self.random_state)
         self._setup_logging_mp_workaround()
@@ -319,6 +341,9 @@ class Hyperopt:
 
         except KeyboardInterrupt:
             print("User interrupted..")
+        finally:
+            # Clean up shared memory resources
+            self.hyperopt_integration.cleanup()
 
         if self.count_skipped_epochs > 0:
             logger.info(

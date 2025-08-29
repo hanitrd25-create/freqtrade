@@ -93,53 +93,54 @@ class SharedMemoryManager:
             logger.error(f"Failed to share DataFrame: {e}")
             raise
     
-    def get_dataframe(self, key: str) -> pd.DataFrame:
+    def get_dataframe_by_name(self, shm_name: str, shape: Tuple, dtype_str: str, 
+                               columns: list, index: list, column_dtypes: Dict) -> pd.DataFrame:
         """
-        Retrieve a DataFrame from shared memory.
+        Retrieve a DataFrame from shared memory using explicit parameters.
         
-        :param key: Key of the shared DataFrame
+        :param shm_name: Name of the shared memory block
+        :param shape: Shape of the array
+        :param dtype_str: String representation of dtype
+        :param columns: Column names
+        :param index: Index values
+        :param column_dtypes: Original column dtypes
         :return: Retrieved DataFrame
         """
-        if key not in self.metadata:
-            raise KeyError(f"No shared data found with key: {key}")
-        
-        meta = self.metadata[key]
-        if meta['type'] != 'dataframe':
-            raise TypeError(f"Data with key {key} is not a DataFrame")
-        
         try:
             # Access existing shared memory
-            shm = shared_memory.SharedMemory(name=meta['shm_name'])
+            shm = shared_memory.SharedMemory(name=shm_name)
             
             # Reconstruct numpy array
             shared_array = np.ndarray(
-                meta['shape'],
-                dtype=np.dtype(meta['dtype']),  # Convert string back to dtype
+                shape,
+                dtype=np.dtype(dtype_str),
                 buffer=shm.buf
             )
             
-            # Create DataFrame
+            # Create DataFrame (copy to avoid issues when shared memory is released)
             df = pd.DataFrame(
-                shared_array.copy(),  # Copy to avoid issues when shared memory is released
-                columns=meta['columns'],
-                index=meta['index']
+                shared_array.copy(),
+                columns=columns,
+                index=index
             )
             
             # Restore original column dtypes
-            if 'column_dtypes' in meta:
-                for col, dtype_str in meta['column_dtypes'].items():
+            for col, dtype_str in column_dtypes.items():
+                try:
                     df[col] = df[col].astype(dtype_str)
+                except Exception:
+                    pass  # Skip if dtype conversion fails
             
-            # Don't store the reference in worker processes
+            # Close the shared memory reference
             shm.close()
             
             return df
             
         except Exception as e:
-            logger.error(f"Failed to retrieve DataFrame: {e}")
+            logger.error(f"Failed to retrieve DataFrame from shared memory: {e}")
             raise
     
-    def share_dict(self, data: Dict, key: Optional[str] = None) -> str:
+    def share_dict(self, data: Dict, key: Optional[str] = None) -> Tuple[str, Dict]:
         """
         Share a dictionary of DataFrames in shared memory.
         
@@ -180,35 +181,42 @@ class SharedMemoryManager:
             )
             logger.info(f"Shared dictionary with key: {key}, total size: {total_size:.2f}MB")
             
-            return key
+            return key, self.metadata[key]
             
         except Exception as e:
             logger.error(f"Failed to share dictionary: {e}")
             raise
     
-    def get_dict(self, key: str) -> Dict:
+    def get_dict(self, key: str, metadata: Optional[Dict[str, Dict]] = None) -> Dict:
         """
         Retrieve a dictionary from shared memory.
         
         :param key: Key of the shared dictionary
+        :param metadata: Optional metadata dict for all shared memory blocks
         :return: Retrieved dictionary
         """
-        if key not in self.metadata:
+        # Use provided metadata or local metadata
+        all_metadata = metadata if metadata else self.metadata
+        
+        if key not in all_metadata:
             raise KeyError(f"No shared data found with key: {key}")
         
-        meta = self.metadata[key]
+        meta = all_metadata[key]
         if meta['type'] != 'dict':
             raise TypeError(f"Data with key {key} is not a dictionary")
         
         try:
+            # Reconstruct dictionary by retrieving each DataFrame
             result = {}
             for k, v in meta['shared_keys'].items():
-                if isinstance(v, str) and v in self.metadata:
-                    # It's a reference to a shared DataFrame
-                    result[k] = self.get_dataframe(v)
-                else:
-                    # It's pickled data
+                if isinstance(v, str) and v in all_metadata:
+                    # It's a shared DataFrame
+                    result[k] = self.get_dataframe(v, all_metadata[v])
+                elif isinstance(v, bytes):
+                    # It's a pickled value
                     result[k] = pickle.loads(v)
+                else:
+                    result[k] = v
             
             return result
             
@@ -231,7 +239,10 @@ class SharedMemoryManager:
                     if isinstance(v, str) and v in self.metadata
                 ])
         else:
+            # Clean all blocks and metadata
             keys_to_clean = list(self.shared_blocks.keys())
+            # Also include any metadata entries without shared blocks (e.g., dict metadata)
+            keys_to_clean.extend([k for k in self.metadata.keys() if k not in self.shared_blocks])
         
         for k in keys_to_clean:
             if k in self.shared_blocks:
@@ -293,7 +304,7 @@ class SharedDataWrapper:
         # Reconstruct numpy array
         shared_array = np.ndarray(
             meta['shape'],
-            dtype=meta['dtype'],
+            dtype=np.dtype(meta['dtype']),  # Convert string back to dtype
             buffer=shm.buf
         )
         
@@ -303,6 +314,11 @@ class SharedDataWrapper:
             columns=meta['columns'],
             index=meta['index']
         )
+        
+        # Restore original column dtypes
+        if 'column_dtypes' in meta:
+            for col, dtype_str in meta['column_dtypes'].items():
+                df[col] = df[col].astype(dtype_str)
         
         shm.close()
         return df

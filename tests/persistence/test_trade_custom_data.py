@@ -5,7 +5,7 @@ import pytest
 
 from freqtrade.data.history.history_utils import get_timerange
 from freqtrade.optimize.backtesting import Backtesting
-from freqtrade.persistence import Trade, disable_database_use, enable_database_use
+from freqtrade.persistence import Trade, enable_database_use
 from freqtrade.persistence.custom_data import CustomDataWrapper
 from tests.conftest import (
     EXMS,
@@ -19,8 +19,6 @@ from tests.conftest import (
 @pytest.mark.usefixtures("init_persistence")
 @pytest.mark.parametrize("use_db", [True, False])
 def test_trade_custom_data(fee, use_db):
-    if not use_db:
-        disable_database_use("5m")
     Trade.reset_trades()
     CustomDataWrapper.reset_custom_data()
 

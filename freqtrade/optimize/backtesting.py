@@ -48,32 +48,30 @@ from freqtrade.ft_types import (
 )
 from freqtrade.leverage.liquidation_price import update_liquidation_prices
 from freqtrade.mixins import LoggingMixin
-from freqtrade.optimize.vectorized_backtesting import VectorizedBacktester
-from freqtrade.optimize.backtest_caching import get_strategy_run_id
 from freqtrade.optimize.bt_progress import BTProgress
+from freqtrade.optimize.indicator_cache import (
+    get_indicator_cache,
+    get_signal_cache,
+    clear_all_caches,
+)
 from freqtrade.optimize.optimize_reports import (
     generate_backtest_stats,
-    generate_rejected_signals,
-    generate_trade_signal_candles,
     show_backtest_results,
     store_backtest_results,
 )
-from freqtrade.persistence import (
-    CustomDataWrapper,
-    LocalTrade,
-    Order,
-    PairLocks,
-    Trade,
-    disable_database_use,
-    enable_database_use,
-)
+from freqtrade.optimize.vectorized_backtesting import VectorizedBacktester
+from freqtrade.persistence import LocalTrade, Order, PairLocks, Trade
+from freqtrade.persistence.usedb_context import enable_database_use
 from freqtrade.plugins.pairlistmanager import PairListManager
 from freqtrade.plugins.protectionmanager import ProtectionManager
-from freqtrade.resolvers import ExchangeResolver, StrategyResolver
-from freqtrade.strategy.interface import IStrategy
+from freqtrade.resolvers import (
+    ExchangeResolver,
+    ProtectionResolver,
+    StrategyResolver,
+)
+from freqtrade.strategy import IStrategy
 from freqtrade.strategy.strategy_wrapper import strategy_safe_wrapper
-from freqtrade.util import FtPrecise, dt_now
-from freqtrade.util.migrations import migrate_data
+from freqtrade.util import dt_now, get_progress_tracker
 from freqtrade.wallets import Wallets
 
 
@@ -171,7 +169,6 @@ class Backtesting:
         self.timeframe_secs = timeframe_to_seconds(self.timeframe)
         self.timeframe_min = self.timeframe_secs // 60
         self.timeframe_td = timedelta(seconds=self.timeframe_secs)
-        self.disable_database_use()
         self.init_backtest_detail()
         self.pairlists = PairListManager(self.exchange, self.config, self.dataprovider)
         self._validate_pairlists_for_backtesting()
@@ -428,14 +425,10 @@ class Backtesting:
                 return precision, TICK_SIZE
         return self.exchange.get_precision_price(pair), self.precision_mode_price
 
-    def disable_database_use(self):
-        disable_database_use(self.timeframe)
-
     def prepare_backtest(self, enable_protections):
         """
         Backtesting setup method - called once for every call to "backtest()".
         """
-        self.disable_database_use()
         PairLocks.reset_locks()
         Trade.reset_trades()
         CustomDataWrapper.reset_custom_data()
@@ -1690,16 +1683,16 @@ class Backtesting:
         :return: DataFrame with trades (results of backtesting)
         """
         # Check if vectorized backtesting can be used
-        if (self.use_vectorized and 
+        if (self.use_vectorized and
             self.vectorized_backtester.can_use_vectorized(self.strategy) and
             not self.enable_protections and
             not self.config.get('use_exit_signal', True)):
-            
+
             logger.info("Using vectorized backtesting for faster processing")
             results = self.vectorized_backtester.vectorized_backtest(
                 processed, start_date, end_date
             )
-            
+
             # Convert results to match expected format
             return {
                 "results": results,
@@ -1713,7 +1706,7 @@ class Backtesting:
                 "replaced_entry_orders": 0,
                 "final_balance": self.wallets.get_total(self.strategy.config["stake_currency"]),
             }
-        
+
         # Fall back to standard backtesting for complex strategies
         self.prepare_backtest(self.enable_protections)
         # Ensure wallets are up-to-date (important for --strategy-list)
@@ -1768,6 +1761,13 @@ class Backtesting:
         logger.info(f"Running backtesting for Strategy {strategy_name}")
         backtest_start_time = dt_now()
         self._set_strategy(strat)
+
+        # Use indicator cache if enabled
+        use_cache = self.config.get('use_indicator_cache', True)
+        if use_cache:
+            indicator_cache = get_indicator_cache()
+            signal_cache = get_signal_cache()
+            logger.info(f"Indicator caching enabled - Cache stats: {indicator_cache.get_stats()}")
 
         # need to reprocess data every time to populate signals
         preprocessed = self.strategy.advise_all_indicators(data)
