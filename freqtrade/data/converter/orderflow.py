@@ -144,7 +144,11 @@ def populate_dataframe_with_trades(
                 orderflow = trades_to_volumeprofile_with_total_delta_bid_ask(
                     trades_grouped_df, scale=config_orderflow["scale"]
                 )
-                dataframe.at[index, "orderflow"] = orderflow.to_dict(orient="index")
+                # Memory optimization: use more efficient dict conversion for large datasets
+                if len(orderflow) > 100:  # For large orderflow data, use iterrows for memory efficiency
+                    dataframe.at[index, "orderflow"] = {idx: row.to_dict() for idx, row in orderflow.iterrows()}
+                else:
+                    dataframe.at[index, "orderflow"] = orderflow.to_dict(orient="index")
                 # orderflow_series.loc[[index]] = [orderflow.to_dict(orient="index")]
                 # Calculate imbalances for each candle's orderflow
                 imbalances = trades_orderflow_to_imbalances(
