@@ -48,6 +48,7 @@ from freqtrade.ft_types import (
 )
 from freqtrade.leverage.liquidation_price import update_liquidation_prices
 from freqtrade.mixins import LoggingMixin
+from freqtrade.optimize.vectorized_backtesting import VectorizedBacktester
 from freqtrade.optimize.backtest_caching import get_strategy_run_id
 from freqtrade.optimize.bt_progress import BTProgress
 from freqtrade.optimize.optimize_reports import (
@@ -212,6 +213,10 @@ class Backtesting:
         self._position_stacking: bool = self.config.get("position_stacking", False)
         self.enable_protections: bool = self.config.get("enable_protections", False)
         migrate_data(config, self.exchange)
+
+        # Initialize vectorized backtester for simple strategies
+        self.vectorized_backtester = VectorizedBacktester(self.config)
+        self.use_vectorized = self.config.get('use_vectorized_backtesting', True)
 
         self.init_backtest()
 
@@ -1684,6 +1689,32 @@ class Backtesting:
         :param end_date: backtesting timerange end datetime
         :return: DataFrame with trades (results of backtesting)
         """
+        # Check if vectorized backtesting can be used
+        if (self.use_vectorized and 
+            self.vectorized_backtester.can_use_vectorized(self.strategy) and
+            not self.enable_protections and
+            not self.config.get('use_exit_signal', True)):
+            
+            logger.info("Using vectorized backtesting for faster processing")
+            results = self.vectorized_backtester.vectorized_backtest(
+                processed, start_date, end_date
+            )
+            
+            # Convert results to match expected format
+            return {
+                "results": results,
+                "config": self.strategy.config,
+                "locks": [],
+                "rejected_signals": 0,
+                "timedout_entry_orders": 0,
+                "timedout_exit_orders": 0,
+                "canceled_trade_entries": 0,
+                "canceled_entry_orders": 0,
+                "replaced_entry_orders": 0,
+                "final_balance": self.wallets.get_total(self.strategy.config["stake_currency"]),
+            }
+        
+        # Fall back to standard backtesting for complex strategies
         self.prepare_backtest(self.enable_protections)
         # Ensure wallets are up-to-date (important for --strategy-list)
         self.wallets.update()
