@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from freqtrade.constants import LAST_BT_RESULT_FN
+from freqtrade.data.ipc_utils import read_compressed_ipc_to_pandas
 from freqtrade.exceptions import ConfigurationError, OperationalException
 from freqtrade.ft_types import BacktestHistoryEntryType, BacktestResultType
 from freqtrade.misc import file_dump_json, json_load
@@ -298,18 +299,33 @@ def update_backtest_metadata(filename: Path, strategy: str, content: dict[str, A
     file_dump_json(get_backtest_metadata_filename(filename), metadata)
 
 
-def get_backtest_market_change(filename: Path, include_ts: bool = True) -> pd.DataFrame:
+def get_backtest_market_change(filename: Path) -> pd.DataFrame:
     """
-    Read backtest market change file.
+    Load backtest market change data from a file.
+    :param filename: Path to the file (can be .zip or .feather)
+    :return: DataFrame with market change data
     """
     if filename.suffix == ".zip":
-        data = load_file_from_zip(filename, f"{filename.stem}_market_change.feather")
-        df = pd.read_feather(BytesIO(data))
+        if filename.exists():
+            # Open the zip file for reading
+            with zipfile.ZipFile(filename, "r") as zip_ref:
+                file_names = zip_ref.namelist()
+                # Find the market_change.feather file
+                market_change_files = [f for f in file_names if "market_change.feather" in f]
+                if market_change_files:
+                    # Read the feather file from within the zip
+                    with zip_ref.open(market_change_files[0]) as feather_data:
+                        # Read into BytesIO for in-memory processing
+                        feather_bytes = BytesIO(feather_data.read())
+                        # Use centralized optimized IPC reading - no memory mapping for BytesIO
+                        return read_compressed_ipc_to_pandas(feather_bytes, memory_map=False)
+                else:
+                    raise ValueError("No market change file found in zip.")
+    elif filename.suffix == ".feather":
+        # Direct file reading with memory mapping using centralized utility
+        return read_compressed_ipc_to_pandas(filename, memory_map=True)
     else:
-        df = pd.read_feather(filename)
-    if include_ts:
-        df.loc[:, "__date_ts"] = df.loc[:, "date"].astype(np.int64) // 1000 // 1000
-    return df
+        raise ValueError(f"Unsupported file format: {filename.suffix}")
 
 
 def find_existing_backtest_stats(

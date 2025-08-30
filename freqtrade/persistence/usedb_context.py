@@ -2,6 +2,16 @@ from freqtrade.persistence.custom_data import CustomDataWrapper
 from freqtrade.persistence.pairlock_middleware import PairLocks
 from freqtrade.persistence.trade_model import Trade
 
+
+def disable_database_use() -> None:
+    """
+    Disable database usage for backtesting.
+    """
+    PairLocks.use_db = False
+    Trade.use_db = False
+    CustomDataWrapper.use_db = False
+
+
 def enable_database_use() -> None:
     """
     Cleanup function to restore database usage.

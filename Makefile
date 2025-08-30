@@ -36,7 +36,7 @@ quick: install dev-install format lint test
 # Full pipeline (keeps build artifacts; does NOT clean at the end)
 all: clean install dev-install format lint test docs-build docs-check build
 
-dev: clean install build clean
+dev: clean build clean
 
 install:
 	$(PIP) install -U pip wheel --ignore-installed urllib3 wheel cryptography jsonschema

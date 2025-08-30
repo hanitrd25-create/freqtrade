@@ -1,9 +1,10 @@
 import logging
 
-from pandas import DataFrame, read_feather, to_datetime
+from pandas import DataFrame, to_datetime
 
 from freqtrade.configuration import TimeRange
 from freqtrade.constants import DEFAULT_DATAFRAME_COLUMNS, DEFAULT_TRADES_COLUMNS
+from freqtrade.data.ipc_utils import read_compressed_ipc_to_pandas, write_compressed_ipc_from_pandas
 from freqtrade.enums import CandleType, TradingMode
 
 from .idatahandler import IDataHandler
@@ -59,18 +60,20 @@ class FeatherDataHandler(IDataHandler):
             if not filename.exists():
                 return DataFrame(columns=self._columns)
         try:
-            pairdata = read_feather(filename)
-            pairdata.columns = self._columns
-            pairdata = pairdata.astype(
-                dtype={
-                    "open": "float",
-                    "high": "float",
-                    "low": "float",
-                    "close": "float",
-                    "volume": "float",
-                }
-            )
-            pairdata["date"] = to_datetime(pairdata["date"], unit="ms", utc=True)
+            # Use optimized compressed IPC reading method from centralized utility
+            pairdata = read_compressed_ipc_to_pandas(filename)
+            
+            # Ensure column names match expected format
+            if len(pairdata.columns) == len(self._columns):
+                pairdata.columns = self._columns
+            
+            # Convert date column if needed (Arrow dtypes handle this efficiently)
+            if "date" in pairdata.columns:
+                # Check if date is already in datetime format
+                import pandas as pd
+                if not pd.api.types.is_datetime64_any_dtype(pairdata["date"]):
+                    pairdata["date"] = to_datetime(pairdata["date"], unit="ms", utc=True)
+            
             return pairdata
         except Exception as e:
             logger.exception(
@@ -100,7 +103,10 @@ class FeatherDataHandler(IDataHandler):
         """
         filename = self._pair_trades_filename(self._datadir, pair, trading_mode)
         self.create_dir_if_needed(filename)
-        data.reset_index(drop=True).to_feather(filename, compression_level=9, compression="lz4")
+        # Use centralized IPC writing with compression
+        write_compressed_ipc_from_pandas(
+            data.reset_index(drop=True), filename, compression="lz4", compression_level=9
+        )
 
     def trades_append(self, pair: str, data: DataFrame):
         """
@@ -119,16 +125,29 @@ class FeatherDataHandler(IDataHandler):
         # TODO: respect timerange ...
         :param pair: Load trades for this pair
         :param trading_mode: Trading mode to use (used to determine the filename)
-        :param timerange: Timerange to load trades for - currently not implemented
-        :return: Dataframe containing trades
+        :param timerange: Limit data to be loaded to this timerange.
+        :return: DataFrame containing trades, empty DataFrame if no data was found
         """
         filename = self._pair_trades_filename(self._datadir, pair, trading_mode)
         if not filename.exists():
             return DataFrame(columns=DEFAULT_TRADES_COLUMNS)
 
-        tradesdata = read_feather(filename)
-
-        return tradesdata
+        try:
+            # Use optimized compressed IPC reading method from centralized utility
+            pairdata = read_compressed_ipc_to_pandas(filename)
+            
+            # Ensure column names match if needed
+            if len(pairdata.columns) == len(DEFAULT_TRADES_COLUMNS):
+                pairdata.columns = DEFAULT_TRADES_COLUMNS
+            
+            # Add date column if timestamp exists (Arrow dtypes handle this efficiently)
+            if "timestamp" in pairdata.columns:
+                pairdata["date"] = to_datetime(pairdata["timestamp"], unit="ms", utc=True)
+            
+            return pairdata
+        except Exception as e:
+            logger.exception(f"Error loading trades from {filename}: {e}")
+            return DataFrame(columns=DEFAULT_TRADES_COLUMNS)
 
     @classmethod
     def _get_file_extension(cls):

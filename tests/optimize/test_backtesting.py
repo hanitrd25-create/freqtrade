@@ -141,6 +141,40 @@ def _trend_alternate(dataframe=None, metadata=None):
 
 
 # Unit tests
+def test_backtesting_initialization(mocker, default_conf, tmp_path) -> None:
+    """
+    Test that Backtesting class initializes correctly.
+    This test would have caught the missing migrate_data import.
+    """
+    patch_exchange(mocker)
+    mocker.patch('freqtrade.optimize.backtesting.history.get_timerange', return_value=(None, None))
+    mocker.patch('freqtrade.optimize.backtesting.history.validate_backtest_data')
+    mocker.patch('freqtrade.util.migrations.migrate_data')  # This is what was missing
+    
+    default_conf['datadir'] = tmp_path
+    default_conf['strategy'] = CURRENT_TEST_STRATEGY
+    default_conf['timeframe'] = '5m'
+    default_conf['timerange'] = '20180101-20180102'
+    default_conf['exchange']['pair_whitelist'] = ['BTC/USDT', 'ETH/USDT']
+    
+    # This should not raise any errors, especially not NameError
+    backtesting = Backtesting(default_conf)
+    
+    # Basic assertions to ensure initialization worked
+    assert backtesting.config == default_conf
+    assert backtesting.timeframe == '5m'
+    assert hasattr(backtesting, 'strategy')
+    assert hasattr(backtesting, 'exchange')
+    assert hasattr(backtesting, 'dataprovider')
+    assert hasattr(backtesting, 'wallets')
+    assert hasattr(backtesting, 'progress')
+    assert hasattr(backtesting, 'vectorized_backtester')
+    
+    # Verify migrate_data was called during initialization
+    migrate_mock = mocker.patch('freqtrade.util.migrations.migrate_data')
+    assert migrate_mock.called
+
+
 def test_setup_optimize_configuration_without_arguments(mocker, default_conf, caplog) -> None:
     patched_configuration_load_config_file(mocker, default_conf)
 

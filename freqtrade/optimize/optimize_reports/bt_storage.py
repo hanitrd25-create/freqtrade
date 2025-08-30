@@ -8,6 +8,7 @@ from pandas import DataFrame
 
 from freqtrade.configuration import sanitize_config
 from freqtrade.constants import LAST_BT_RESULT_FN
+from freqtrade.data.ipc_utils import write_compressed_ipc_from_pandas
 from freqtrade.enums.runmode import RunMode
 from freqtrade.ft_types import BacktestResultType
 from freqtrade.misc import dump_json_to_file, file_dump_json
@@ -117,8 +118,12 @@ def store_backtest_results(
         if market_change_data is not None:
             market_change_name = f"{base_filename.stem}_market_change.feather"
             market_change_buf = BytesIO()
-            market_change_data.reset_index().to_feather(
-                market_change_buf, compression_level=9, compression="lz4"
+            # Use centralized IPC writing with compression
+            write_compressed_ipc_from_pandas(
+                market_change_data.reset_index(),
+                market_change_buf,
+                compression="lz4",
+                compression_level=9
             )
             market_change_buf.seek(0)
             zipf.writestr(market_change_name, market_change_buf.getvalue())

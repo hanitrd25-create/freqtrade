@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Dict, Optional, Any
 import pandas as pd
 import psutil
+from joblib import load
 
 from freqtrade.optimize.hyperopt_resource_optimizer import HyperoptResourceOptimizer as ResourceOptimizer
 from freqtrade.optimize.shared_memory_simple import SimpleSharedMemoryManager
@@ -88,8 +89,8 @@ class HyperoptIntegration:
         
         try:
             # Load data to check size
-            with open(data_pickle_file, 'rb') as f:
-                data = pickle.load(f)
+            # Use joblib's load since data is saved with joblib's dump
+            data = load(data_pickle_file)
             
             data_size_mb = estimate_data_size(data)
             logger.info(f"Data size: {data_size_mb:.2f}MB")

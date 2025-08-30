@@ -10,14 +10,15 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-import psutil
+from joblib import dump, load
 from datasieve.pipeline import Pipeline
 from pandas import DataFrame
 from sklearn.model_selection import train_test_split
 
 from freqtrade.configuration import TimeRange
-from freqtrade.constants import DOCS_LINK, ORDERFLOW_ADDED_COLUMNS, Config
+from freqtrade.constants import DOCS_LINK, Config
 from freqtrade.data.converter import reduce_dataframe_footprint
+from freqtrade.data.ipc_utils import read_compressed_ipc_to_pandas
 from freqtrade.exceptions import OperationalException
 from freqtrade.exchange import timeframe_to_seconds
 from freqtrade.strategy import merge_informative_pair
@@ -919,10 +920,12 @@ class FreqaiDataKitchen:
 
     def get_backtesting_prediction(self) -> DataFrame:
         """
-        Get prediction dataframe from feather file format
+        Get prediction dataframe from feather file format using optimized IPC reading
         """
-        append_df = pd.read_feather(self.backtesting_results_path)
-        return append_df
+        # Use centralized optimized IPC reading with memory mapping and Arrow-backed dtypes
+        df = read_compressed_ipc_to_pandas(self.backtesting_results_path, memory_map=True)
+
+        return df
 
     def check_if_backtest_prediction_is_valid(self, len_backtest_df: int) -> bool:
         """

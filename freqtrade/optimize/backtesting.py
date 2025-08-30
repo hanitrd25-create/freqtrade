@@ -60,7 +60,8 @@ from freqtrade.optimize.optimize_reports import (
     store_backtest_results,
 )
 from freqtrade.optimize.vectorized_backtesting import VectorizedBacktester
-from freqtrade.persistence import LocalTrade, Order, PairLocks, Trade
+from freqtrade.persistence import LocalTrade, Order, PairLocks, Trade, init_db, disable_database_use
+from freqtrade.persistence.custom_data import CustomDataWrapper
 from freqtrade.persistence.usedb_context import enable_database_use
 from freqtrade.plugins.pairlistmanager import PairListManager
 from freqtrade.plugins.protectionmanager import ProtectionManager
@@ -72,6 +73,7 @@ from freqtrade.resolvers import (
 from freqtrade.strategy import IStrategy
 from freqtrade.strategy.strategy_wrapper import strategy_safe_wrapper
 from freqtrade.util import dt_now, get_progress_tracker
+from freqtrade.util.migrations import migrate_data
 from freqtrade.wallets import Wallets
 
 
@@ -274,6 +276,9 @@ class Backtesting:
         self.futures_data: dict[str, DataFrame] = {}
 
     def init_backtest(self):
+        # Disable database usage for backtesting (we don't persist trades)
+        disable_database_use()
+        
         self.prepare_backtest(False)
 
         self.wallets = Wallets(self.config, self.exchange, is_backtest=True)
