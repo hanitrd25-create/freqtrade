@@ -267,17 +267,20 @@ def plot_trades(fig, trades: pd.DataFrame) -> make_subplots:
             + f"{row['trade_duration']} min",
             axis=1,
         )
+        # Ensure we're using the correct column for x-axis (handle both index and column cases)
+        x_open = trades.index if 'open_date' not in trades.columns else trades["open_date"]
+        x_close = trades.index if 'close_date' not in trades.columns else trades["close_date"]
+        
         trade_entries = go.Scatter(
-            x=trades["open_date"],
+            x=x_open,
             y=trades["open_rate"],
+            text=trades["desc"],
             mode="markers",
             name="Trade entry",
-            text=trades["desc"],
             marker=dict(symbol="circle-open", size=11, line=dict(width=2), color="cyan"),
         )
-
         trade_exits = go.Scatter(
-            x=trades.loc[trades["profit_ratio"] > 0, "close_date"],
+            x=x_close[trades["profit_ratio"] > 0],
             y=trades.loc[trades["profit_ratio"] > 0, "close_rate"],
             text=trades.loc[trades["profit_ratio"] > 0, "desc"],
             mode="markers",
@@ -285,7 +288,7 @@ def plot_trades(fig, trades: pd.DataFrame) -> make_subplots:
             marker=dict(symbol="square-open", size=11, line=dict(width=2), color="green"),
         )
         trade_exits_loss = go.Scatter(
-            x=trades.loc[trades["profit_ratio"] <= 0, "close_date"],
+            x=x_close[trades["profit_ratio"] <= 0],
             y=trades.loc[trades["profit_ratio"] <= 0, "close_rate"],
             text=trades.loc[trades["profit_ratio"] <= 0, "desc"],
             mode="markers",
@@ -359,10 +362,12 @@ def plot_area(
     if indicator_a in data and indicator_b in data:
         # make lines invisible to get the area plotted, only.
         line = {"color": "rgba(255,255,255,0)"}
+        # Handle case where 'date' might be an index or column
+        x_values = data.index if 'date' not in data.columns else data['date']
         # TODO: Figure out why scattergl causes problems plotly/plotly.js#2284
-        trace_a = go.Scatter(x=data.date, y=data[indicator_a], showlegend=False, line=line)
+        trace_a = go.Scatter(x=x_values, y=data[indicator_a], showlegend=False, line=line)
         trace_b = go.Scatter(
-            x=data.date,
+            x=x_values,
             y=data[indicator_b],
             name=label,
             fill="tonexty",
@@ -409,9 +414,11 @@ def create_scatter(data, column_name, color, direction) -> go.Scatter | None:
     if column_name in data.columns:
         df_short = data[data[column_name] == 1]
         if len(df_short) > 0:
+            # Handle case where 'date' might be an index or column
+            x_values = df_short.index if 'date' not in df_short.columns else df_short['date']
             shorts = go.Scatter(
-                x=df_short.date,
-                y=df_short.close,
+                x=x_values,
+                y=df_short['close'],
                 mode="markers",
                 name=column_name,
                 marker=dict(

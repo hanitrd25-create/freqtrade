@@ -1,0 +1,46 @@
+# COPY AND RUN THIS COMMAND DIRECTLY ON YOUR SERVER (root@d000033):
+
+python3 -c "
+import sys
+file_path = '/home/freqtrade/freqtrade/data/history/datahandlers/featherdatahandler.py'
+try:
+    with open(file_path, 'r') as f:
+        lines = f.readlines()
+    
+    # Find the problematic lines (around line 65-68)
+    for i in range(len(lines)):
+        if 'if len(pairdata.columns) == len(self._columns):' in lines[i]:
+            # Found the problematic line, replace this section
+            print(f'Found issue at line {i+1}')
+            # Replace the condition to check if columns are already correct
+            lines[i] = '            if list(pairdata.columns) != list(self._columns):\n'
+            # Add a nested if to check length
+            if i+1 < len(lines) and 'pairdata.columns = self._columns' in lines[i+1]:
+                lines[i+1] = '                # Only reassign if we have the right number of columns\n                if len(pairdata.columns) == len(self._columns):\n                    pairdata.columns = self._columns\n'
+            
+            # Write back the fixed file
+            with open(file_path, 'w') as f:
+                f.writelines(lines)
+            print('✓ Fix applied successfully!')
+            print('Now run: freqtrade backtesting --strategy DLIStrategy')
+            sys.exit(0)
+    
+    print('⚠ Pattern not found. Checking if already fixed...')
+    for line in lines:
+        if 'Only reassign columns if' in line:
+            print('✓ Fix already applied!')
+            sys.exit(0)
+    
+    print('Manual fix required at: ' + file_path)
+    print('Around line 65-68, change:')
+    print('  if len(pairdata.columns) == len(self._columns):')
+    print('      pairdata.columns = self._columns')
+    print('To:')
+    print('  if list(pairdata.columns) != list(self._columns):')
+    print('      if len(pairdata.columns) == len(self._columns):')
+    print('          pairdata.columns = self._columns')
+    
+except Exception as e:
+    print(f'Error: {e}')
+    print('Please manually edit: ' + file_path)
+"

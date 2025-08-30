@@ -54,6 +54,7 @@ from freqtrade.optimize.indicator_cache import (
     get_signal_cache,
     clear_all_caches,
 )
+from freqtrade.optimize.backtest_caching import get_strategy_run_id
 from freqtrade.optimize.optimize_reports import (
     generate_backtest_stats,
     show_backtest_results,

@@ -36,10 +36,10 @@ quick: install dev-install format lint test
 # Full pipeline (keeps build artifacts; does NOT clean at the end)
 all: clean install dev-install format lint test docs-build docs-check build
 
-dev: clean build clean
+dev: clean install build clean
 
 install:
-	$(PIP) install -U pip wheel --ignore-installed urllib3 wheel cryptography jsonschema
+	$(PIP) install -U pip wheel || true
 	@test -f $(REQ_MAIN) && $(PIP) install -r $(REQ_MAIN) || true
 	[ -d "ft_client" ] && $(PIP) install -e ft_client/ || true
 	$(PIP) install -e .
@@ -53,6 +53,7 @@ lint:
 	ruff check --output-format=github
 	ruff format --check
 	mypy freqtrade scripts tests
+	freqtrade --version
 
 format:
 	isort .

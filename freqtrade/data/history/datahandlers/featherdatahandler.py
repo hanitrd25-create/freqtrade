@@ -63,9 +63,44 @@ class FeatherDataHandler(IDataHandler):
             # Use optimized compressed IPC reading method from centralized utility
             pairdata = read_compressed_ipc_to_pandas(filename)
             
-            # Ensure column names match expected format
-            if len(pairdata.columns) == len(self._columns):
+            # Log what we received for debugging
+            original_columns = list(pairdata.columns)
+            logger.info(f"FeatherDataHandler: Loaded {filename.name} with columns: {original_columns}")
+            
+            # Handle column naming robustly
+            # Case 1: Columns are already correct (date, open, high, low, close, volume)
+            if original_columns == list(self._columns):
+                # Columns are already perfect, don't touch them
+                logger.debug(f"Columns already match expected format")
+                pass
+            # Case 2: Columns don't match but we have the right count
+            elif len(original_columns) == len(self._columns):
+                # Always assign our expected column names if they don't match
+                logger.info(f"Renaming columns from {original_columns} to {list(self._columns)}")
                 pairdata.columns = self._columns
+            else:
+                # Wrong number of columns - this is an error
+                logger.error(f"File {filename} has {len(original_columns)} columns, expected {len(self._columns)}")
+                logger.error(f"Columns found: {original_columns}")
+                return DataFrame(columns=self._columns)
+            
+            # CRITICAL FIX: Ensure we ALWAYS have a date column
+            if "date" not in pairdata.columns:
+                logger.error(f"CRITICAL: No 'date' column after processing {filename}")
+                logger.error(f"Original columns: {original_columns}")
+                logger.error(f"Current columns: {list(pairdata.columns)}")
+                logger.error(f"Expected columns: {list(self._columns)}")
+                # FORCE column names to recover - this is critical for backtesting
+                if len(pairdata.columns) == len(self._columns):
+                    logger.warning(f"FORCING column names to expected format")
+                    pairdata.columns = self._columns
+                elif len(pairdata.columns) == 6 and all(isinstance(col, int) for col in pairdata.columns):
+                    # Handle numeric column indices (0, 1, 2, 3, 4, 5)
+                    logger.warning(f"Detected numeric columns, forcing to expected format")
+                    pairdata.columns = self._columns
+                else:
+                    logger.error(f"Cannot recover - returning empty dataframe")
+                    return DataFrame(columns=self._columns)
             
             # Convert date column if needed (Arrow dtypes handle this efficiently)
             if "date" in pairdata.columns:
@@ -73,6 +108,8 @@ class FeatherDataHandler(IDataHandler):
                 import pandas as pd
                 if not pd.api.types.is_datetime64_any_dtype(pairdata["date"]):
                     pairdata["date"] = to_datetime(pairdata["date"], unit="ms", utc=True)
+            else:
+                logger.error(f"Still no 'date' column found in {filename}. Columns: {list(pairdata.columns)}")
             
             return pairdata
         except Exception as e:

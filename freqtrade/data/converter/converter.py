@@ -118,6 +118,9 @@ def ohlcv_fill_up_missing_data(dataframe: DataFrame, timeframe: str, pair: str) 
         }
     )
     df.reset_index(inplace=True)
+    # Fix: Ensure the date column is named 'date' not 'index'
+    if 'index' in df.columns and 'date' not in df.columns:
+        df.rename(columns={'index': 'date'}, inplace=True)
     len_before = len(dataframe)
     len_after = len(df)
     pct_missing = (len_after - len_before) / len_before if len_before > 0 else 0

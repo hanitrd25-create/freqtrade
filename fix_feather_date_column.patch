@@ -1,0 +1,77 @@
+--- a/freqtrade/data/history/datahandlers/featherdatahandler.py
++++ b/freqtrade/data/history/datahandlers/featherdatahandler.py
+@@ -62,12 +62,14 @@ class FeatherDataHandler(IDataHandler):
+         try:
+             # Use optimized compressed IPC reading method from centralized utility
+             pairdata = read_compressed_ipc_to_pandas(filename)
+             
+-            # Ensure column names match expected format
+-            if len(pairdata.columns) == len(self._columns):
+-                pairdata.columns = self._columns
++            # Only reassign columns if they don't match expected format
++            # Check if columns are already correct before reassigning
++            if list(pairdata.columns) != list(self._columns):
++                # Only reassign if we have the right number of columns
++                if len(pairdata.columns) == len(self._columns):
++                    pairdata.columns = self._columns
+             
+             # Convert date column if needed (Arrow dtypes handle this efficiently)
+             if "date" in pairdata.columns:
+                 # Check if date is already in datetime format
+                 import pandas as pd
+
+--- a/freqtrade/data/btanalysis/bt_fileutils.py
++++ b/freqtrade/data/btanalysis/bt_fileutils.py
+@@ -299,32 +299,29 @@ def update_backtest_metadata(filename: Path, strategy: str, content: dict[str,
+     file_dump_json(get_backtest_metadata_filename(filename), metadata)
+ 
+ 
+-def load_backtest_data(
+-    filename: Path, *, include_ts: bool = True
+-) -> pd.DataFrame | BacktestResultType:
++def get_backtest_market_change(filename: Path) -> pd.DataFrame:
+     """
+-    Load backtest data file.
+-    :param filename: Path to the file
+-    :param include_ts: If True, dates will be converted to timestamps.
+-    :return: Dataframe
++    Load backtest market change data from a file.
++    :param filename: Path to the file (can be .zip or .feather)
++    :return: DataFrame with market change data
+     """
+-    bt_file = filename
+-    if bt_file.suffix == ".zip":
+-        if bt_file.exists():
++    if filename.suffix == ".zip":
++        if filename.exists():
+             # Open the zip file for reading
+-            with zipfile.ZipFile(bt_file, "r") as zip_ref:
++            with zipfile.ZipFile(filename, "r") as zip_ref:
+                 file_names = zip_ref.namelist()
+-                # Find the first .feather file
+-                feather_files = [f for f in file_names if f.endswith(".feather")]
+-                if feather_files:
++                # Find the market_change.feather file
++                market_change_files = [f for f in file_names if "market_change.feather" in f]
++                if market_change_files:
+                     # Read the feather file from within the zip
+-                    with zip_ref.open(feather_files[0]) as feather_data:
++                    with zip_ref.open(market_change_files[0]) as feather_data:
+                         # Read into BytesIO for in-memory processing
+                         feather_bytes = BytesIO(feather_data.read())
+                         # Use centralized optimized IPC reading - no memory mapping for BytesIO
+-                        df = read_compressed_ipc_to_pandas(feather_bytes, memory_map=False)
++                        return read_compressed_ipc_to_pandas(feather_bytes, memory_map=False)
+                 else:
+-                    raise ValueError("No feather file found in zip.")
++                    raise ValueError("No market change file found in zip.")
++    elif filename.suffix == ".feather":
++        # Direct file reading with memory mapping using centralized utility
++        return read_compressed_ipc_to_pandas(filename, memory_map=True)
+     else:
+-        # Direct file reading with memory mapping using centralized utility
+-        df = read_compressed_ipc_to_pandas(bt_file, memory_map=True)
+-    if include_ts:
+-        df.loc[:, "__date_ts"] = df.loc[:, "date"].astype(np.int64) // 1000 // 1000
+-    return df
++        raise ValueError(f"Unsupported file format: {filename.suffix}")

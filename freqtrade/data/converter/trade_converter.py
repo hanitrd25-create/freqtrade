@@ -5,7 +5,9 @@ Functions to convert data from one format to another
 import logging
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
+import pyarrow as pa
 from pandas import DataFrame, to_datetime
 
 from freqtrade.configuration import TimeRange
@@ -30,7 +32,44 @@ def trades_df_remove_duplicates(trades: pd.DataFrame) -> pd.DataFrame:
     :param trades: DataFrame with the columns constants.DEFAULT_TRADES_COLUMNS
     :return: DataFrame with duplicates removed based on the 'timestamp' column
     """
-    return trades.drop_duplicates(subset=["timestamp", "id"])
+    # Check if we have Arrow dtypes that might cause capacity issues
+    has_arrow_dtypes = any(isinstance(dtype, pd.ArrowDtype) for dtype in trades.dtypes)
+    
+    if has_arrow_dtypes and len(trades) > 1_000_000:
+        # For large datasets with Arrow dtypes, convert to standard pandas dtypes
+        # to avoid PyArrow's 2GB capacity limit
+        logger.debug(f"Converting Arrow dtypes to standard pandas dtypes for {len(trades)} trades")
+        
+        # Convert Arrow dtype columns to standard dtypes
+        trades_copy = trades.copy()
+        for col in trades_copy.columns:
+            if isinstance(trades_copy[col].dtype, pd.ArrowDtype):
+                if pd.api.types.is_string_dtype(trades_copy[col]):
+                    trades_copy[col] = trades_copy[col].astype('object')
+                elif pd.api.types.is_integer_dtype(trades_copy[col]):
+                    trades_copy[col] = trades_copy[col].astype('int64')
+                elif pd.api.types.is_float_dtype(trades_copy[col]):
+                    trades_copy[col] = trades_copy[col].astype('float64')
+        
+        # Now remove duplicates with standard dtypes
+        result = trades_copy.drop_duplicates(subset=["timestamp", "id"])
+        
+        # Optionally convert back to Arrow dtypes for memory efficiency
+        # But only if the result is small enough
+        if len(result) < 500_000:
+            for col in result.columns:
+                if col in ['timestamp', 'id']:
+                    continue
+                if pd.api.types.is_string_dtype(result[col]):
+                    try:
+                        result[col] = result[col].astype(pd.ArrowDtype(pa.string()))
+                    except:
+                        pass  # Keep standard dtype if conversion fails
+        
+        return result
+    else:
+        # For smaller datasets or non-Arrow dtypes, use the standard method
+        return trades.drop_duplicates(subset=["timestamp", "id"])
 
 
 def trades_dict_to_list(trades: list[dict]) -> TradeList:
