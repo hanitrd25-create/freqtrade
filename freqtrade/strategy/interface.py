@@ -1677,10 +1677,11 @@ class IStrategy(ABC, HyperStrategyMixin):
                 logger.debug(f"Custom ROI function did not return a valid ROI for {trade.pair}")
 
         # Get highest entry in ROI dict where key <= trade-duration
-        roi_list = [x for x in self.minimal_roi.keys() if x <= trade_dur]
+        roi_thresholds = [int(k) for k in self.minimal_roi.keys()]
+        roi_list = [x for x in roi_thresholds if x <= trade_dur]
         if roi_list:
             roi_entry = max(roi_list)
-            min_roi = self.minimal_roi[roi_entry]
+            min_roi = self.minimal_roi.get(roi_entry, self.minimal_roi.get(str(roi_entry)))
         else:
             roi_entry = None
             min_roi = None
