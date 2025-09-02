@@ -2686,6 +2686,19 @@ class Exchange:
                 (pair, timeframe, c_type), copy=False
             )
 
+        if self.trading_mode == TradingMode.FUTURES and self._config.get("runmode") in TRADE_MODES and hasattr(
+                self, 'fetchan_funding_rates'):
+            pair_names = set(pair for pair, _, _ in pair_list)
+
+            # It's important to fetch all at once for performance and avoid rate limiting
+            current_fundings = self.fetch_funding_rates(list(pair_names))
+
+            if current_fundings and results_df:
+                for pair_info, dataframe in results_df.items():
+                    pair_name = pair_info[0]
+                    dataframe.loc[dataframe.index[-1], 'funding_rate'] = current_fundings.get(pair_name, {}).get(
+                        'fundingRate', 0.0)
+
         return results_df
 
     def refresh_ohlcv_with_cache(
