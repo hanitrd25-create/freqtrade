@@ -147,15 +147,23 @@ class Hyperopt:
                 self.print_all,
             )
 
-    def run_optimizer_parallel(self, parallel: Parallel, asked: list) -> list[dict[str, Any]]:
-        """Start optimizer in a parallel way. Default=loky; optional 'threading' to avoid IPC issues."""
+    def run_optimizer_parallel(self, parallel: Parallel, asked: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """
+        Execute one batch of hyperopt evaluations in parallel.
+        Default backend is 'loky' (processes). Users can opt into 'threading'
+        (no IPC/semaphores) via config["joblib_backend"] or env FT_HYPEROPT_BACKEND.
+        The original calling convention is preserved, returning List[Dict] with key "loss".
+        """
     
         def optimizer_wrapper(*args, **kwargs):
+            # Initialize the global log queue inside the worker context.
+            # Must happen in the file that initializes Parallel.
             logging_mp_setup(
                 log_queue, logging.INFO if self.config["verbosity"] < 1 else logging.DEBUG
             )
             return self.hyperopter.generate_optimizer_wrapped(*args, **kwargs)
     
+        # Resolve backend: config key > environment variable > default ('loky').
         import os
         backend = (
             self.config.get("joblib_backend")
@@ -165,18 +173,19 @@ class Hyperopt:
         if backend not in ("loky", "threading"):
             backend = "loky"
     
-        # Construire le contexte joblib (sans fallback d’import)
+        # Build joblib context. For 'threading', try to cap nested BLAS/OMP threads;
+        # gracefully fallback if this joblib version/backend does not accept the parameter.
         if backend == "threading":
             try:
                 ctx = _joblib_parallel_ctx(backend="threading", inner_max_num_threads=1)
             except TypeError:
-                # Certaines versions de joblib n’acceptent pas ce paramètre pour ThreadingBackend
                 ctx = _joblib_parallel_ctx(backend="threading")
         else:
             ctx = _joblib_parallel_ctx(backend="loky")
     
+        # Use the provided `parallel` callable to keep semantics identical to upstream:
+        # this yields a List[Dict[str, Any]] where each dict contains "loss".
         with ctx:
-            # Garder la convention d’appel d’origine – retourne list[dict] avec la clé "loss"
             return parallel(optimizer_wrapper(v) for v in asked)
 
 
