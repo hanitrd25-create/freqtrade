@@ -278,7 +278,7 @@ class Hyperopt:
             if backend == "threading":
                 try:
                     ctx = _joblib_parallel_ctx(backend="threading", inner_max_num_threads=1)
-                except TypeError:
+                except (TypeError, AssertionError):
                     ctx = _joblib_parallel_ctx(backend="threading")
             else:
                 ctx = _joblib_parallel_ctx(backend="loky")
