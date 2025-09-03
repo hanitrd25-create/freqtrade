@@ -14,7 +14,13 @@ from pathlib import Path
 from typing import Any
 
 import rapidjson
-from joblib import Parallel, cpu_count
+from joblib import Parallel, cpu_count, delayed
+try:
+    # joblib >= 1.1 provides `parallel_config`
+    from joblib import parallel_config as _joblib_parallel_ctx
+except ImportError:  # joblib < 1.1 fallback
+    # `parallel_backend` offers a similar context manager interface
+    from joblib import parallel_backend as _joblib_parallel_ctx  # type: ignore
 from optuna.trial import FrozenTrial, Trial, TrialState
 
 from freqtrade.constants import FTHYPT_FILEVERSION, LAST_BT_RESULT_FN, Config
@@ -147,17 +153,24 @@ class Hyperopt:
             )
 
     def run_optimizer_parallel(self, parallel: Parallel, asked: list[list]) -> list[dict[str, Any]]:
-        """Start optimizer in a parallel way"""
-
+        """Start optimizer in a parallel way (force THREADING backend to avoid IPC)."""
+ 
         def optimizer_wrapper(*args, **kwargs):
             # global log queue. This must happen in the file that initializes Parallel
             logging_mp_setup(
                 log_queue, logging.INFO if self.config["verbosity"] < 1 else logging.DEBUG
             )
-
+ 
             return self.hyperopter.generate_optimizer_wrapped(*args, **kwargs)
+ 
+        # Keep the same degree of parallelism as the provided `parallel` object
+        n_jobs = getattr(parallel, "n_jobs", self.n_jobs)
 
-        return parallel(optimizer_wrapper(v) for v in asked)
+        # Use THREADING backend (no POSIX semaphores/IPC) and avoid nested BLAS/OMP threads per job
+        with _joblib_parallel_ctx(backend="threading", inner_max_num_threads=1):
+            return Parallel(n_jobs=n_jobs)(
+                delayed(optimizer_wrapper)(v) for v in asked
+            )
 
     def _set_random_state(self, random_state: int | None) -> int:
         return random_state or random.randint(1, 2**16 - 1)  # noqa: S311
