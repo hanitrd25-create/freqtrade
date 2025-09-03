@@ -96,6 +96,10 @@ def start_hyperopt(args: dict[str, Any]) -> None:
     # Initialize configuration
     config = setup_optimize_configuration(args, RunMode.HYPEROPT)
 
+    # Map CLI backend selection to config (retro-compatible: default stays 'loky')
+    if args.get("joblib_backend"):
+        config["joblib_backend"] = args["joblib_backend"]
+
     logger.info("Starting freqtrade in Hyperopt mode")
 
     lock = FileLock(Hyperopt.get_lock_filename(config))
