@@ -15,20 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import rapidjson
-from joblib import Parallel, delayed
-# Prefer joblib's cpu_count (respects env like LOKY_MAX_CPU_COUNT); fallback to os.cpu_count()
-try:
-    from joblib import cpu_count  # type: ignore
-except Exception:
-    import os as _os
-    def cpu_count() -> int:  # type: ignore
-        return _os.cpu_count() or 1
-# Joblib context manager alias for configuring the backend (threading/loky)
-try:
-    # joblib >= 1.1
-    from joblib import parallel_config as _joblib_parallel_ctx
-except ImportError:  # joblib < 1.1 fallback
-    from joblib import parallel_backend as _joblib_parallel_ctx  # type: ignore
+from joblib import Parallel, delayed, parallel_config as _joblib_parallel_ctx
 from optuna.trial import FrozenTrial, Trial, TrialState
 
 from freqtrade.constants import FTHYPT_FILEVERSION, LAST_BT_RESULT_FN, Config
@@ -161,17 +148,14 @@ class Hyperopt:
             )
 
     def run_optimizer_parallel(self, parallel: Parallel, asked: list) -> list[dict[str, Any]]:
-        """Start optimizer in a parallel way.
-        Backward-compatible default (loky); optional 'threading' to avoid IPC issues.
-        """
-
+        """Start optimizer in a parallel way. Default=loky; optional 'threading' to avoid IPC issues."""
+    
         def optimizer_wrapper(*args, **kwargs):
             logging_mp_setup(
                 log_queue, logging.INFO if self.config["verbosity"] < 1 else logging.DEBUG
             )
             return self.hyperopter.generate_optimizer_wrapped(*args, **kwargs)
-
-        # Resolve backend: config key > env var > default('loky')
+    
         import os
         backend = (
             self.config.get("joblib_backend")
@@ -180,19 +164,21 @@ class Hyperopt:
         )
         if backend not in ("loky", "threading"):
             backend = "loky"
-
-        # Build joblib context (threading may accept inner_max_num_threads)
-        try:
-            if backend == "threading":
+    
+        # Construire le contexte joblib (sans fallback d’import)
+        if backend == "threading":
+            try:
                 ctx = _joblib_parallel_ctx(backend="threading", inner_max_num_threads=1)
-            else:
-                ctx = _joblib_parallel_ctx(backend="loky")
-        except Exception:
-            ctx = _joblib_parallel_ctx(backend=backend)
-
+            except TypeError:
+                # Certaines versions de joblib n’acceptent pas ce paramètre pour ThreadingBackend
+                ctx = _joblib_parallel_ctx(backend="threading")
+        else:
+            ctx = _joblib_parallel_ctx(backend="loky")
+    
         with ctx:
-            # Keep original calling convention so we return list[dict] (with "loss")
+            # Garder la convention d’appel d’origine – retourne list[dict] avec la clé "loss"
             return parallel(optimizer_wrapper(v) for v in asked)
+
 
     def _set_random_state(self, random_state: int | None) -> int:
         return random_state or random.randint(1, 2**16 - 1)  # noqa: S311
