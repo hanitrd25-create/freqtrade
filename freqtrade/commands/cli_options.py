@@ -334,6 +334,12 @@ AVAILABLE_CLI_OPTIONS = {
         metavar="JOBS",
         default=-1,
     ),
+    "joblib_backend": Arg(
+        "--joblib-backend",
+        help="Parallelism backend for Hyperopt: 'loky' (processes, default) or 'threading' (no IPC).",
+        choices=("loky", "threading"),
+        default=None,
+    ),
     "hyperopt_random_state": Arg(
         "--random-state",
         help="Set random state to some positive integer for reproducible hyperopt results.",
