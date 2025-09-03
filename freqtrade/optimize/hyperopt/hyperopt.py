@@ -6,6 +6,7 @@ This module contains the hyperopt logic
 
 import gc
 import logging
+import os
 import random
 from datetime import datetime
 from math import ceil
@@ -14,12 +15,19 @@ from pathlib import Path
 from typing import Any
 
 import rapidjson
-from joblib import Parallel, cpu_count, delayed
+from joblib import Parallel, delayed
+# Prefer joblib's cpu_count (respects env like LOKY_MAX_CPU_COUNT); fallback to os.cpu_count()
 try:
-    # joblib >= 1.1 provides `parallel_config`
+    from joblib import cpu_count  # type: ignore
+except Exception:
+    import os as _os
+    def cpu_count() -> int:  # type: ignore
+        return _os.cpu_count() or 1
+# Joblib context manager alias for configuring the backend (threading/loky)
+try:
+    # joblib >= 1.1
     from joblib import parallel_config as _joblib_parallel_ctx
 except ImportError:  # joblib < 1.1 fallback
-    # `parallel_backend` offers a similar context manager interface
     from joblib import parallel_backend as _joblib_parallel_ctx  # type: ignore
 from optuna.trial import FrozenTrial, Trial, TrialState
 
@@ -152,25 +160,39 @@ class Hyperopt:
                 self.print_all,
             )
 
-    def run_optimizer_parallel(self, parallel: Parallel, asked: list[list]) -> list[dict[str, Any]]:
-        """Start optimizer in a parallel way (force THREADING backend to avoid IPC)."""
- 
+    def run_optimizer_parallel(self, parallel: Parallel, asked: list) -> list[dict[str, Any]]:
+        """Start optimizer in a parallel way.
+        Backward-compatible default (loky); optional 'threading' to avoid IPC issues.
+        """
+
         def optimizer_wrapper(*args, **kwargs):
-            # global log queue. This must happen in the file that initializes Parallel
             logging_mp_setup(
                 log_queue, logging.INFO if self.config["verbosity"] < 1 else logging.DEBUG
             )
- 
             return self.hyperopter.generate_optimizer_wrapped(*args, **kwargs)
- 
-        # Keep the same degree of parallelism as the provided `parallel` object
-        n_jobs = getattr(parallel, "n_jobs", self.n_jobs)
 
-        # Use THREADING backend (no POSIX semaphores/IPC) and avoid nested BLAS/OMP threads per job
-        with _joblib_parallel_ctx(backend="threading", inner_max_num_threads=1):
-            return Parallel(n_jobs=n_jobs)(
-                delayed(optimizer_wrapper)(v) for v in asked
-            )
+        # Resolve backend: config key > env var > default('loky')
+        import os
+        backend = (
+            self.config.get("joblib_backend")
+            or os.getenv("FT_HYPEROPT_BACKEND")
+            or "loky"
+        )
+        if backend not in ("loky", "threading"):
+            backend = "loky"
+
+        # Build joblib context (threading may accept inner_max_num_threads)
+        try:
+            if backend == "threading":
+                ctx = _joblib_parallel_ctx(backend="threading", inner_max_num_threads=1)
+            else:
+                ctx = _joblib_parallel_ctx(backend="loky")
+        except Exception:
+            ctx = _joblib_parallel_ctx(backend=backend)
+
+        with ctx:
+            # Keep original calling convention so we return list[dict] (with "loss")
+            return parallel(optimizer_wrapper(v) for v in asked)
 
     def _set_random_state(self, random_state: int | None) -> int:
         return random_state or random.randint(1, 2**16 - 1)  # noqa: S311
