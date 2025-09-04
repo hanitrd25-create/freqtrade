@@ -6,6 +6,7 @@ This module contains the hyperopt logic
 
 import gc
 import logging
+import os
 import random
 from datetime import datetime
 from math import ceil
@@ -14,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import rapidjson
-from joblib import Parallel, cpu_count
+from joblib import Parallel, parallel_config as _joblib_parallel_ctx, cpu_count
 from optuna.trial import FrozenTrial, Trial, TrialState
 
 from freqtrade.constants import FTHYPT_FILEVERSION, LAST_BT_RESULT_FN, Config
@@ -146,18 +147,23 @@ class Hyperopt:
                 self.print_all,
             )
 
-    def run_optimizer_parallel(self, parallel: Parallel, asked: list[list]) -> list[dict[str, Any]]:
-        """Start optimizer in a parallel way"""
+    def run_optimizer_parallel(self, parallel: Parallel, asked: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """
+        Execute one batch of hyperopt evaluations in parallel.
+        The Parallel backend is already selected in `start()` (loky by default,
+        optionally 'threading' via config/env/CLI). Keep original calling convention,
+        returning List[Dict] with key "loss".
+        """
 
         def optimizer_wrapper(*args, **kwargs):
-            # global log queue. This must happen in the file that initializes Parallel
             logging_mp_setup(
                 log_queue, logging.INFO if self.config["verbosity"] < 1 else logging.DEBUG
             )
-
             return self.hyperopter.generate_optimizer_wrapped(*args, **kwargs)
 
+        # Use the provided `parallel` callable (backend chosen in start()).
         return parallel(optimizer_wrapper(v) for v in asked)
+
 
     def _set_random_state(self, random_state: int | None) -> int:
         return random_state or random.randint(1, 2**16 - 1)  # noqa: S311
@@ -259,63 +265,82 @@ class Hyperopt:
         self.opt = self.hyperopter.get_optimizer(self.random_state)
         self._setup_logging_mp_workaround()
         try:
-            with Parallel(n_jobs=config_jobs) as parallel:
-                jobs = parallel._effective_n_jobs()
-                logger.info(f"Effective number of parallel workers used: {jobs}")
+            # Resolve backend here (config > env > default)
+            backend = (
+                self.config.get("joblib_backend")
+                or os.getenv("FT_HYPEROPT_BACKEND")
+                or "loky"
+            )
+            if backend not in ("loky", "threading"):
+                backend = "loky"
 
-                # Define progressbar
-                with get_progress_tracker(cust_callables=[self._hyper_out]) as pbar:
-                    task = pbar.add_task("Epochs", total=self.total_epochs)
+            # Build joblib context around the *instantiation* of Parallel
+            if backend == "threading":
+                try:
+                    ctx = _joblib_parallel_ctx(backend="threading", inner_max_num_threads=1)
+                except (TypeError, AssertionError):
+                    ctx = _joblib_parallel_ctx(backend="threading")
+            else:
+                ctx = _joblib_parallel_ctx(backend="loky")
 
-                    start = 0
+            with ctx:
+                with Parallel(n_jobs=config_jobs) as parallel:
+                    jobs = parallel._effective_n_jobs()
+                    logger.info(f"Effective number of parallel workers used: {jobs}")
 
-                    if self.analyze_per_epoch:
-                        # First analysis not in parallel mode when using --analyze-per-epoch.
-                        # This allows dataprovider to load it's informative cache.
-                        asked, is_random = self.get_asked_points(
-                            n_points=1, dimensions=self.hyperopter.o_dimensions
-                        )
-                        f_val0 = self.hyperopter.generate_optimizer(asked[0].params)
-                        self.opt.tell(asked[0], [f_val0["loss"]])
-                        self.evaluate_result(f_val0, 1, is_random[0])
-                        pbar.update(task, advance=1)
-                        start += 1
+                    # Define progressbar
+                    with get_progress_tracker(cust_callables=[self._hyper_out]) as pbar:
+                        task = pbar.add_task("Epochs", total=self.total_epochs)
 
-                    evals = ceil((self.total_epochs - start) / jobs)
-                    for i in range(evals):
-                        # Correct the number of epochs to be processed for the last
-                        # iteration (should not exceed self.total_epochs in total)
-                        n_rest = (i + 1) * jobs - (self.total_epochs - start)
-                        current_jobs = jobs - n_rest if n_rest > 0 else jobs
+                        start = 0
 
-                        asked, is_random = self.get_asked_points(
-                            n_points=current_jobs, dimensions=self.hyperopter.o_dimensions
-                        )
-
-                        f_val = self.run_optimizer_parallel(
-                            parallel,
-                            [asked1.params for asked1 in asked],
-                        )
-
-                        f_val_loss = [v["loss"] for v in f_val]
-                        for o_ask, v in zip(asked, f_val_loss, strict=False):
-                            self.opt.tell(o_ask, v)
-
-                        for j, val in enumerate(f_val):
-                            # Use human-friendly indexes here (starting from 1)
-                            current = i * jobs + j + 1 + start
-
-                            self.evaluate_result(val, current, is_random[j])
+                        if self.analyze_per_epoch:
+                            # First analysis not in parallel mode when using --analyze-per-epoch.
+                            # This allows dataprovider to load it's informative cache.
+                            asked, is_random = self.get_asked_points(
+                                n_points=1, dimensions=self.hyperopter.o_dimensions
+                            )
+                            f_val0 = self.hyperopter.generate_optimizer(asked[0].params)
+                            self.opt.tell(asked[0], [f_val0["loss"]])
+                            self.evaluate_result(f_val0, 1, is_random[0])
                             pbar.update(task, advance=1)
-                        logging_mp_handle(log_queue)
-                        gc.collect()
+                            start += 1
 
-                        if (
-                            self.hyperopter.es_epochs > 0
-                            and self.hyperopter.es_terminator.should_terminate(self.opt)
-                        ):
-                            logger.info(f"Early stopping after {(i + 1) * jobs} epochs")
-                            break
+                        evals = ceil((self.total_epochs - start) / jobs)
+                        for i in range(evals):
+                            # Correct the number of epochs to be processed for the last
+                            # iteration (should not exceed self.total_epochs in total)
+                            n_rest = (i + 1) * jobs - (self.total_epochs - start)
+                            current_jobs = jobs - n_rest if n_rest > 0 else jobs
+
+                            asked, is_random = self.get_asked_points(
+                                n_points=current_jobs, dimensions=self.hyperopter.o_dimensions
+                            )
+
+                            f_val = self.run_optimizer_parallel(
+                                parallel,
+                                [asked1.params for asked1 in asked],
+                            )
+
+                            f_val_loss = [v["loss"] for v in f_val]
+                            for o_ask, v in zip(asked, f_val_loss, strict=False):
+                                self.opt.tell(o_ask, v)
+
+                            for j, val in enumerate(f_val):
+                                # Use human-friendly indexes here (starting from 1)
+                                current = i * jobs + j + 1 + start
+
+                                self.evaluate_result(val, current, is_random[j])
+                                pbar.update(task, advance=1)
+                            logging_mp_handle(log_queue)
+                            gc.collect()
+
+                            if (
+                                self.hyperopter.es_epochs > 0
+                                and self.hyperopter.es_terminator.should_terminate(self.opt)
+                            ):
+                                logger.info(f"Early stopping after {(i + 1) * jobs} epochs")
+                                break
 
         except KeyboardInterrupt:
             print("User interrupted..")

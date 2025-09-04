@@ -74,6 +74,7 @@ ARGS_HYPEROPT = [
     "print_all",
     "print_json",
     "hyperopt_jobs",
+    "joblib_backend",
     "hyperopt_random_state",
     "hyperopt_min_trades",
     "hyperopt_loss",
